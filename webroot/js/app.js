@@ -573,31 +573,34 @@
   /* IP Geolocation Check & Network Shield                                      */
   /* -------------------------------------------------------------------------- */
 
-  // Known country codes per city/region for matching
-  const COUNTRY_BY_PRESET = {
-    'JP': [[35, 36], [139, 140]],   // Japan (lat 35-36, lng 139-140)
-    'US': [[24, 50], [-125, -65]],
-    'GB': [[49, 59], [-8, 2]],
-    'FR': [[42, 52], [-5, 8]],
-    'IN': [[8, 37], [68, 97]],
-    'AE': [[22, 26], [51, 56]],
-    'SG': [[1, 2], [103, 104]],
-    'AU': [[-45, -10], [110, 155]],
-    'DE': [[47, 55], [6, 16]],
-    'BR': [[-35, 5], [-74, -34]],
-    'JP': [[30, 45], [129, 145]],
-    'CN': [[18, 53], [73, 135]],
-    'KR': [[33, 43], [124, 132]],
-    'RU': [[41, 82], [19, 180]],
-    'CA': [[41, 84], [-141, -52]],
-    'MX': [[14, 33], [-118, -86]],
-    'IT': [[36, 48], [6, 19]],
-    'ES': [[36, 44], [-10, 5]],
-  };
+  // Known country codes per region — bounding boxes for GPS-to-country matching
+  const COUNTRY_BY_PRESET = [
+    ['JP', [30, 46], [129, 146]],
+    ['US', [24, 50], [-125, -65]],
+    ['GB', [49, 60], [-8, 2]],
+    ['FR', [42, 52], [-5, 8]],
+    ['IN', [8, 37], [68, 97]],
+    ['AE', [22, 27], [51, 57]],
+    ['SG', [1, 2], [103, 105]],
+    ['AU', [-45, -10], [110, 155]],
+    ['DE', [47, 56], [6, 16]],
+    ['BR', [-35, 5], [-74, -34]],
+    ['CN', [18, 54], [73, 136]],
+    ['KR', [33, 43], [124, 132]],
+    ['RU', [41, 82], [19, 180]],
+    ['CA', [41, 84], [-141, -52]],
+    ['MX', [14, 33], [-118, -86]],
+    ['IT', [36, 48], [6, 19]],
+    ['ES', [36, 44], [-10, 5]],
+    ['NL', [50, 54], [3, 8]],
+    ['CH', [45, 48], [5, 11]],
+    ['TR', [35, 43], [25, 45]],
+  ];
 
   function guessCountryFromCoords(lat, lng) {
-    for (const [code, [[latMin, latMax], [lngMin, lngMax]]] of Object.entries(COUNTRY_BY_PRESET)) {
-      if (lat >= latMin && lat <= latMax && lng >= lngMin && lng <= lngMax) {
+    for (const [code, [latRange, lngRange]] of COUNTRY_BY_PRESET) {
+      if (lat >= latRange[0] && lat <= latRange[1] &&
+          lng >= lngRange[0] && lng <= lngRange[1]) {
         return code;
       }
     }
@@ -610,77 +613,81 @@
     if (ipCheckInProgress) return;
     ipCheckInProgress = true;
 
-    const ipEl = document.getElementById('telem-ip');
-    const cityEl = document.getElementById('telem-ip-city');
+    const ipEl    = document.getElementById('telem-ip');
+    const cityEl  = document.getElementById('telem-ip-city');
     const matchEl = document.getElementById('telem-ip-match');
     const mismatchWarn = document.getElementById('ip-mismatch-warn');
     const matchOk = document.getElementById('ip-match-ok');
 
-    if (ipEl) ipEl.textContent = 'Fetching...';
-    if (cityEl) cityEl.textContent = 'Fetching...';
+    if (ipEl) ipEl.textContent = 'Checking...';
+    if (cityEl) cityEl.textContent = 'Checking...';
+    if (matchEl) matchEl.textContent = 'Checking...';
+
+    const showResult = (ipAddr, city, country, countryCode) => {
+      if (ipEl) { ipEl.textContent = ipAddr; ipEl.style.color = 'var(--text-secondary)'; }
+      if (cityEl) { cityEl.textContent = city ? `${city}, ${country}` : country || 'Unknown'; cityEl.style.color = 'var(--text-secondary)'; }
+
+      const spoofedCountry = guessCountryFromCoords(state.lat, state.lng);
+      const isMatch = spoofedCountry && spoofedCountry === countryCode;
+
+      if (matchEl) {
+        if (!spoofedCountry) {
+          matchEl.textContent = 'Unknown region — cannot compare';
+          matchEl.style.color = 'var(--text-muted)';
+        } else if (isMatch) {
+          matchEl.textContent = `Match — both resolving to ${countryCode}`;
+          matchEl.style.color = 'var(--emerald-active)';
+        } else {
+          matchEl.textContent = `Mismatch — IP: ${countryCode}, GPS: ${spoofedCountry}`;
+          matchEl.style.color = 'var(--amber-warning)';
+        }
+      }
+      if (mismatchWarn) mismatchWarn.style.display = (!isMatch && spoofedCountry) ? 'block' : 'none';
+      if (matchOk)      matchOk.style.display = isMatch ? 'block' : 'none';
+    };
+
+    const showError = (msg) => {
+      if (ipEl) ipEl.textContent = 'Unavailable';
+      if (cityEl) cityEl.textContent = msg;
+      if (matchEl) { matchEl.textContent = 'Check failed'; matchEl.style.color = 'var(--text-muted)'; }
+    };
 
     try {
-      // Primary: ip-api.com (free, no key required)
-      const res = await fetch('https://ip-api.com/json/?fields=status,country,countryCode,regionName,city,query', {
-        signal: AbortSignal.timeout(5000)
-      });
-      const data = await res.json();
-
-      if (data && data.status === 'success') {
-        const ipCountry = data.countryCode || '';
-        const ipCity = data.city || data.regionName || 'Unknown';
-        const ipAddr = data.query || 'Unknown';
-
-        if (ipEl) {
-          ipEl.textContent = ipAddr;
-          ipEl.style.color = 'var(--text-secondary)';
-        }
-        if (cityEl) {
-          cityEl.textContent = `${ipCity}, ${data.country || ipCountry}`;
-          cityEl.style.color = 'var(--text-secondary)';
-        }
-
-        // Compare IP country to spoofed GPS country
-        const spoofedCountry = guessCountryFromCoords(state.lat, state.lng);
-        const isMatch = spoofedCountry && spoofedCountry === ipCountry;
-
-        if (matchEl) {
-          if (spoofedCountry === null) {
-            matchEl.textContent = 'Cannot determine (unknown region)';
-            matchEl.style.color = 'var(--text-muted)';
-          } else if (isMatch) {
-            matchEl.textContent = `✅ Match — both in ${ipCountry}`;
-            matchEl.style.color = 'var(--emerald-active)';
-          } else {
-            matchEl.textContent = `⚠️ MISMATCH — IP says ${ipCountry}, GPS says ${spoofedCountry}`;
-            matchEl.style.color = 'var(--amber-warning)';
+      // Primary path: route through root shell to avoid WebView CORS/network restrictions.
+      // net_shield.sh ip-check runs wget/curl on the root process — no browser policy applies.
+      if (state.isKsuAvailable) {
+        const res = await execCmd(`sh ${MODULE_SCRIPT_PATH} net-shield ip-check`);
+        if (res && (res.errno == 0 || res.errno === 0) && res.stdout) {
+          const data = JSON.parse(res.stdout);
+          if (data && data.status === 'success') {
+            showResult(data.query || '?', data.city || data.regionName, data.country, data.countryCode);
+            ipCheckInProgress = false;
+            return;
           }
         }
+      }
 
-        if (mismatchWarn) mismatchWarn.style.display = isMatch ? 'none' : 'block';
-        if (matchOk) matchOk.style.display = isMatch ? 'block' : 'none';
+      // Fallback: direct browser fetch (works in desktop preview or if KSU bridge unavailable)
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 6000);
+      let data = null;
+      try {
+        const r = await fetch(
+          'https://ip-api.com/json/?fields=status,country,countryCode,regionName,city,query',
+          { signal: controller.signal }
+        );
+        data = await r.json();
+      } finally {
+        clearTimeout(timer);
+      }
+
+      if (data && data.status === 'success') {
+        showResult(data.query || '?', data.city || data.regionName, data.country, data.countryCode);
       } else {
-        throw new Error('API returned failure');
+        showError('Geo lookup failed');
       }
     } catch (e) {
-      // Fallback: ipify (only returns IP, no geo)
-      try {
-        const r2 = await fetch('https://api.ipify.org?format=json', { signal: AbortSignal.timeout(4000) });
-        const d2 = await r2.json();
-        if (ipEl) {
-          ipEl.textContent = d2.ip || 'Unknown';
-          ipEl.style.color = 'var(--text-secondary)';
-        }
-        if (cityEl) cityEl.textContent = 'Geo unavailable';
-        if (matchEl) {
-          matchEl.textContent = 'Geo lookup failed — Check network';
-          matchEl.style.color = 'var(--text-muted)';
-        }
-      } catch (_) {
-        if (ipEl) ipEl.textContent = 'Network error';
-        if (cityEl) cityEl.textContent = 'Offline / no network';
-        if (matchEl) matchEl.textContent = 'Check failed';
-      }
+      showError('No network / fetch blocked');
     } finally {
       ipCheckInProgress = false;
     }
@@ -725,11 +732,17 @@
     const cmd = `sh ${MODULE_SCRIPT_PATH} net-shield ${action}`;
     const res = await execCmd(cmd);
 
-    if (res && res.errno === 0) {
-      showToast(`Network shield ${action === 'on' ? 'ENABLED 🛡️' : 'DISABLED'}`);
+    // errno may be number or string depending on KernelSU bridge version — use loose equality
+    if (res && res.errno == 0) {
+      showToast(`Network shield ${action === 'on' ? 'enabled' : 'disabled'}`);
+      await fetchDaemonStatus();
+    } else if (res && res.stdout && res.stdout.includes('shield')) {
+      // Script returned valid JSON even with non-zero exit — treat as success
+      showToast(`Network shield ${action === 'on' ? 'enabled' : 'disabled'}`);
       await fetchDaemonStatus();
     } else {
-      showToast('Shield toggle failed (check daemon log)');
+      const errDetail = res ? (res.stderr || res.stdout || 'no output') : 'no response';
+      showToast(`Shield toggle error — ${errDetail.substring(0, 60)}`);
     }
   }
 

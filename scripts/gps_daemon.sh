@@ -76,11 +76,8 @@ else
     settings put global ble_scan_always_enabled 0 2>/dev/null
 fi
 
-# Kill location-caching apps so they fetch fresh (spoofed) location on next open
+# Kill Google Maps cache only (safe — Maps restarts cleanly)
 am force-stop com.google.android.apps.maps 2>/dev/null
-sleep 0.3
-# Kill GMS location process (will auto-restart from our test provider)
-am kill com.google.android.gms 2>/dev/null
 
 # Helper function to extract json values
 get_json_val() {
@@ -120,28 +117,43 @@ while true; do
     TARGET_LNG="$BASE_LNG"
     TARGET_ACC="$ACCURACY"
 
-    # Micro-jitter calculation to simulate authentic satellite atmospheric drift (±1.5 meters)
+    # Micro-jitter: simulate authentic GNSS atmospheric drift (±1.5 meters)
+    # Using separate awk call + field extraction — compatible with Android mksh
     if [ "$JITTER" = "true" ]; then
         r1=$(( (RANDOM % 31) - 15 ))
         r2=$(( (RANDOM % 31) - 15 ))
-        
-        # Calculate tiny coordinate offsets using awk
-        read -r TARGET_LAT TARGET_LNG TARGET_ACC << EOF
-$(awk -v r1="$r1" -v r2="$r2" -v lat="$BASE_LAT" -v lng="$BASE_LNG" -v acc="$ACCURACY" 'BEGIN {
-    d_lat = r1 * 0.0000012;
-    d_lng = r2 * 0.0000012;
-    res_lat = lat + d_lat;
-    res_lng = lng + d_lng;
-    res_acc = acc + ((r1 % 3) * 0.3);
-    if (res_acc < 2.0) res_acc = 2.0;
-    printf "%.7f %.7f %.1f", res_lat, res_lng, res_acc;
-}')
-EOF
+        JITTER_OUT=$(awk -v r1="$r1" -v r2="$r2" \
+            -v lat="$BASE_LAT" -v lng="$BASE_LNG" -v acc="$ACCURACY" \
+            'BEGIN {
+                d_lat = r1 * 0.0000012;
+                d_lng = r2 * 0.0000012;
+                res_lat = lat + d_lat;
+                res_lng = lng + d_lng;
+                res_acc = acc + ((r1 % 3) * 0.3);
+                if (res_acc < 2.0) res_acc = 2.0;
+                printf "%.7f %.7f %.1f", res_lat, res_lng, res_acc;
+            }')
+        # Parse awk output into individual vars — safe in mksh
+        TARGET_LAT=$(echo "$JITTER_OUT" | cut -d' ' -f1)
+        TARGET_LNG=$(echo "$JITTER_OUT" | cut -d' ' -f2)
+        TARGET_ACC=$(echo "$JITTER_OUT" | cut -d' ' -f3)
+        # Sanity-check: if jitter produced empty values fall back to base
+        [ -z "$TARGET_LAT" ] && TARGET_LAT="$BASE_LAT"
+        [ -z "$TARGET_LNG" ] && TARGET_LNG="$BASE_LNG"
+        [ -z "$TARGET_ACC" ] && TARGET_ACC="$ACCURACY"
     fi
 
     TICK_COUNT=$((TICK_COUNT + 1))
     if [ $((TICK_COUNT % 10)) -eq 1 ]; then
         echo "[$(date)] Injected coords: ${TARGET_LAT},${TARGET_LNG} (acc: ${TARGET_ACC}m)" >> "$LOG_FILE"
+    fi
+
+    # Re-register providers every 60 ticks in case GMS evicted them
+    if [ $((TICK_COUNT % 60)) -eq 0 ]; then
+        for p in $PROVIDERS; do
+            cmd location providers set-test-provider-enabled "$p" true 2>/dev/null
+        done
+        echo "[$(date)] Provider keepalive tick" >> "$LOG_FILE"
     fi
 
     # Inject into providers
