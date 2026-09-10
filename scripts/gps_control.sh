@@ -67,6 +67,13 @@ cmd_status() {
     LIVE_STATUS="{}"
     [ -f "$STATUS_FILE" ] && LIVE_STATUS=$(cat "$STATUS_FILE" 2>/dev/null)
 
+    # Gather network shield and VPN info
+    NET_JSON="{}"
+    if [ -x "$SCRIPT_DIR/net_shield.sh" ]; then
+        NET_JSON=$("$SCRIPT_DIR/net_shield.sh" status 2>/dev/null)
+        [ -z "$NET_JSON" ] && NET_JSON="{}"
+    fi
+
     cat << EOF
 {
   "active": $RUNNING,
@@ -74,7 +81,8 @@ cmd_status() {
   "dev_options_enabled": "$DEV_OPTIONS",
   "mock_location_app": "$MOCK_APP",
   "config": $CONFIG_CONTENT,
-  "status": $LIVE_STATUS
+  "status": $LIVE_STATUS,
+  "net": $NET_JSON
 }
 EOF
 }
@@ -190,8 +198,16 @@ case "$1" in
     get-config)
         cmd_get_config
         ;;
+    net-shield)
+        shift
+        if [ -x "$SCRIPT_DIR/net_shield.sh" ]; then
+            "$SCRIPT_DIR/net_shield.sh" "${1:-status}"
+        else
+            echo "{\"error\":\"net_shield.sh not found\"}"
+        fi
+        ;;
     *)
-        echo "Usage: gps_control.sh {status|start|stop|set <lat> <lng>|save-config <json>|get-config}"
+        echo "Usage: gps_control.sh {status|start|stop|set <lat> <lng>|save-config <json>|get-config|net-shield [on|off|status|vpn]}"
         exit 1
         ;;
 esac

@@ -46,7 +46,15 @@ fi
 ui_print "- Checking system location services..."
 # Pre-grant mock location capability to system shell
 appops set 2000 android:mock_location allow 2>/dev/null
+appops set 0 android:mock_location allow 2>/dev/null
 appops set com.android.shell android:mock_location allow 2>/dev/null
+appops set --user 0 2000 android:mock_location allow 2>/dev/null
+appops set --user 0 com.android.shell android:mock_location allow 2>/dev/null
+
+# Make all scripts executable
+chmod 0755 "$MODPATH/scripts/gps_daemon.sh" 2>/dev/null
+chmod 0755 "$MODPATH/scripts/gps_control.sh" 2>/dev/null
+chmod 0755 "$MODPATH/scripts/net_shield.sh" 2>/dev/null
 
 ui_print "************************************************"
 ui_print " Installation Finished!                         "

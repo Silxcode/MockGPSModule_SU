@@ -15,6 +15,8 @@ echo "$$" > "$PID_FILE"
 PROVIDERS="gps network fused"
 LOG_FILE="$CONFIG_DIR/daemon.log"
 
+SCRIPT_DIR=${0%/*}
+
 # Cleanup function when daemon stops
 cleanup() {
     echo "[$(date)] Stopping daemon and removing mock providers..." >> "$LOG_FILE"
@@ -22,6 +24,10 @@ cleanup() {
         cmd location providers set-test-provider-enabled "$p" false 2>> "$LOG_FILE"
         cmd location providers remove-test-provider "$p" 2>> "$LOG_FILE"
     done
+    # Disable network shield and restore network settings
+    if [ -x "$SCRIPT_DIR/net_shield.sh" ]; then
+        "$SCRIPT_DIR/net_shield.sh" off >> "$LOG_FILE" 2>&1
+    fi
     rm -f "$PID_FILE"
     echo '{"active":false,"pid":0,"last_tick":0}' > "$STATUS_FILE"
     exit 0
@@ -60,8 +66,21 @@ for p in $PROVIDERS; do
     cmd location providers set-test-provider-enabled "$p" true 2>> "$LOG_FILE"
 done
 
-# Kill Google Maps so it clears in-memory cached location
+# Enable network shield (blocks GMS network location correction + IP geolocation signals)
+if [ -x "$SCRIPT_DIR/net_shield.sh" ]; then
+    "$SCRIPT_DIR/net_shield.sh" on >> "$LOG_FILE" 2>&1
+    echo "[$(date)] Network shield enabled" >> "$LOG_FILE"
+else
+    # Inline fallback — basic Wi-Fi/BLE scanning suppression
+    settings put global wifi_scan_always_enabled 0 2>/dev/null
+    settings put global ble_scan_always_enabled 0 2>/dev/null
+fi
+
+# Kill location-caching apps so they fetch fresh (spoofed) location on next open
 am force-stop com.google.android.apps.maps 2>/dev/null
+sleep 0.3
+# Kill GMS location process (will auto-restart from our test provider)
+am kill com.google.android.gms 2>/dev/null
 
 # Helper function to extract json values
 get_json_val() {

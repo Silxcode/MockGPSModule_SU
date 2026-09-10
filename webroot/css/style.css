@@ -825,3 +825,29 @@ input:checked + .slider:before {
     grid-template-columns: 1fr;
   }
 }
+
+/* Small action buttons for IP / shield panel */
+.btn-action-sm {
+  background: rgba(15, 23, 42, 0.9);
+  border: 1px solid var(--border-accent);
+  color: var(--cyan-hover);
+  border-radius: var(--radius-sm);
+  padding: 7px 14px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  transition: var(--transition);
+  letter-spacing: 0.01em;
+}
+.btn-action-sm:hover {
+  background: rgba(6, 182, 212, 0.12);
+  border-color: var(--cyan-hover);
+  transform: translateY(-1px);
+}
+.btn-action-sm:active {
+  transform: translateY(0);
+}

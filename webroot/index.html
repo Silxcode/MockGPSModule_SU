@@ -265,6 +265,74 @@
       </div>
     </section>
 
+    <!-- IP Check & Network Shield Card -->
+    <section class="telemetry-card" style="border: 1px solid rgba(251,191,36,0.2);">
+      <div class="telemetry-header" id="ip-panel-toggle" style="cursor:pointer;">
+        <h3 class="telemetry-title">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="2" y1="12" x2="22" y2="12"></line>
+            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+          </svg>
+          IP & Network Fingerprint Shield
+        </h3>
+        <svg class="chevron-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="6 9 12 15 18 9"></polyline>
+        </svg>
+      </div>
+
+      <div class="telemetry-content" id="ip-panel-body">
+        <!-- IP Geolocation Row -->
+        <div class="telemetry-row">
+          <span class="telemetry-key">Your Public IP</span>
+          <span class="telemetry-val" id="telem-ip">Checking...</span>
+        </div>
+        <div class="telemetry-row">
+          <span class="telemetry-key">IP-Geolocated City</span>
+          <span class="telemetry-val" id="telem-ip-city">Checking...</span>
+        </div>
+        <div class="telemetry-row">
+          <span class="telemetry-key">IP vs GPS Match</span>
+          <span class="telemetry-val" id="telem-ip-match">Checking...</span>
+        </div>
+
+        <!-- Network Shield Row -->
+        <div class="telemetry-row" style="border-top: 1px solid var(--border-subtle); padding-top: 8px; margin-top: 2px;">
+          <span class="telemetry-key">GMS Network Shield</span>
+          <span class="telemetry-val" id="telem-shield">Unknown</span>
+        </div>
+        <div class="telemetry-row">
+          <span class="telemetry-key">VPN / Tunnel Active</span>
+          <span class="telemetry-val" id="telem-vpn">Checking...</span>
+        </div>
+        <div class="telemetry-row">
+          <span class="telemetry-key">Wi-Fi Scanning</span>
+          <span class="telemetry-val" id="telem-wifi-scan">Checking...</span>
+        </div>
+
+        <!-- Action Buttons -->
+        <div style="display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap;">
+          <button type="button" class="btn-action-sm" id="btn-check-ip" title="Re-check IP geolocation">
+            🌐 Check IP
+          </button>
+          <button type="button" class="btn-action-sm" id="btn-shield-toggle" title="Toggle GMS network shield">
+            🛡️ Toggle Shield
+          </button>
+        </div>
+
+        <!-- Warning if IP mismatch -->
+        <div id="ip-mismatch-warn" style="display:none; margin-top: 8px; padding: 8px 10px; background: rgba(251,191,36,0.08); border: 1px solid rgba(251,191,36,0.3); border-radius: 8px; font-size: 11px; color: var(--amber-warning); line-height: 1.5;">
+          ⚠️ <strong>IP location mismatch detected.</strong> Google Maps and other apps may still see your real country via IP geolocation. Connect a VPN server near your spoofed GPS location for complete anonymity.<br>
+          <span style="color: var(--text-muted); margin-top: 4px; display: block;">Recommended: <strong>Mullvad</strong> or <strong>ProtonVPN</strong> — select a server in the same city as your spoofed GPS location.</span>
+        </div>
+
+        <!-- Good match message -->
+        <div id="ip-match-ok" style="display:none; margin-top: 8px; padding: 8px 10px; background: rgba(52,211,153,0.08); border: 1px solid rgba(52,211,153,0.3); border-radius: 8px; font-size: 11px; color: var(--emerald-active); line-height: 1.5;">
+          ✅ <strong>IP location matches spoofed GPS region.</strong> All major location signals are consistent.
+        </div>
+      </div>
+    </section>
+
     <!-- Telemetry & Diagnostics -->
     <section class="telemetry-card">
       <div class="telemetry-header" id="telemetry-toggle">
@@ -275,7 +343,7 @@
             <line x1="6" y1="6" x2="6.01" y2="6"></line>
             <line x1="6" y1="18" x2="6.01" y2="18"></line>
           </svg>
-          System & Telemetry Diagnostics
+          System &amp; Telemetry Diagnostics
         </h3>
         <svg class="chevron-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <polyline points="6 9 12 15 18 9"></polyline>
@@ -306,7 +374,7 @@
         <div class="telemetry-row" style="flex-direction: column; align-items: flex-start; gap: 4px; padding-top: 8px; border-top: 1px solid var(--border-subtle);">
           <span class="telemetry-key" style="color: var(--amber-warning); font-weight: 600;">Google Maps / Fused Provider Note:</span>
           <span style="font-size: 11px; color: var(--text-muted); line-height: 1.4;">
-            If Google Maps snaps to real location, disable <b>Google Location Accuracy</b> & <b>Wi-Fi Scanning</b> in <i>Settings &rarr; Location &rarr; Location Services</i>, then swipe away Google Maps and reopen.
+            If Google Maps snaps to real location, disable <b>Google Location Accuracy</b> &amp; <b>Wi-Fi Scanning</b> in <i>Settings &rarr; Location &rarr; Location Services</i>, then swipe away Google Maps and reopen.
           </span>
         </div>
       </div>

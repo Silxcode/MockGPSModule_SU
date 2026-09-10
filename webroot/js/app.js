@@ -570,6 +570,170 @@
   }
 
   /* -------------------------------------------------------------------------- */
+  /* IP Geolocation Check & Network Shield                                      */
+  /* -------------------------------------------------------------------------- */
+
+  // Known country codes per city/region for matching
+  const COUNTRY_BY_PRESET = {
+    'JP': [[35, 36], [139, 140]],   // Japan (lat 35-36, lng 139-140)
+    'US': [[24, 50], [-125, -65]],
+    'GB': [[49, 59], [-8, 2]],
+    'FR': [[42, 52], [-5, 8]],
+    'IN': [[8, 37], [68, 97]],
+    'AE': [[22, 26], [51, 56]],
+    'SG': [[1, 2], [103, 104]],
+    'AU': [[-45, -10], [110, 155]],
+    'DE': [[47, 55], [6, 16]],
+    'BR': [[-35, 5], [-74, -34]],
+    'JP': [[30, 45], [129, 145]],
+    'CN': [[18, 53], [73, 135]],
+    'KR': [[33, 43], [124, 132]],
+    'RU': [[41, 82], [19, 180]],
+    'CA': [[41, 84], [-141, -52]],
+    'MX': [[14, 33], [-118, -86]],
+    'IT': [[36, 48], [6, 19]],
+    'ES': [[36, 44], [-10, 5]],
+  };
+
+  function guessCountryFromCoords(lat, lng) {
+    for (const [code, [[latMin, latMax], [lngMin, lngMax]]] of Object.entries(COUNTRY_BY_PRESET)) {
+      if (lat >= latMin && lat <= latMax && lng >= lngMin && lng <= lngMax) {
+        return code;
+      }
+    }
+    return null;
+  }
+
+  let ipCheckInProgress = false;
+
+  async function fetchIpInfo() {
+    if (ipCheckInProgress) return;
+    ipCheckInProgress = true;
+
+    const ipEl = document.getElementById('telem-ip');
+    const cityEl = document.getElementById('telem-ip-city');
+    const matchEl = document.getElementById('telem-ip-match');
+    const mismatchWarn = document.getElementById('ip-mismatch-warn');
+    const matchOk = document.getElementById('ip-match-ok');
+
+    if (ipEl) ipEl.textContent = 'Fetching...';
+    if (cityEl) cityEl.textContent = 'Fetching...';
+
+    try {
+      // Primary: ip-api.com (free, no key required)
+      const res = await fetch('https://ip-api.com/json/?fields=status,country,countryCode,regionName,city,query', {
+        signal: AbortSignal.timeout(5000)
+      });
+      const data = await res.json();
+
+      if (data && data.status === 'success') {
+        const ipCountry = data.countryCode || '';
+        const ipCity = data.city || data.regionName || 'Unknown';
+        const ipAddr = data.query || 'Unknown';
+
+        if (ipEl) {
+          ipEl.textContent = ipAddr;
+          ipEl.style.color = 'var(--text-secondary)';
+        }
+        if (cityEl) {
+          cityEl.textContent = `${ipCity}, ${data.country || ipCountry}`;
+          cityEl.style.color = 'var(--text-secondary)';
+        }
+
+        // Compare IP country to spoofed GPS country
+        const spoofedCountry = guessCountryFromCoords(state.lat, state.lng);
+        const isMatch = spoofedCountry && spoofedCountry === ipCountry;
+
+        if (matchEl) {
+          if (spoofedCountry === null) {
+            matchEl.textContent = 'Cannot determine (unknown region)';
+            matchEl.style.color = 'var(--text-muted)';
+          } else if (isMatch) {
+            matchEl.textContent = `✅ Match — both in ${ipCountry}`;
+            matchEl.style.color = 'var(--emerald-active)';
+          } else {
+            matchEl.textContent = `⚠️ MISMATCH — IP says ${ipCountry}, GPS says ${spoofedCountry}`;
+            matchEl.style.color = 'var(--amber-warning)';
+          }
+        }
+
+        if (mismatchWarn) mismatchWarn.style.display = isMatch ? 'none' : 'block';
+        if (matchOk) matchOk.style.display = isMatch ? 'block' : 'none';
+      } else {
+        throw new Error('API returned failure');
+      }
+    } catch (e) {
+      // Fallback: ipify (only returns IP, no geo)
+      try {
+        const r2 = await fetch('https://api.ipify.org?format=json', { signal: AbortSignal.timeout(4000) });
+        const d2 = await r2.json();
+        if (ipEl) {
+          ipEl.textContent = d2.ip || 'Unknown';
+          ipEl.style.color = 'var(--text-secondary)';
+        }
+        if (cityEl) cityEl.textContent = 'Geo unavailable';
+        if (matchEl) {
+          matchEl.textContent = 'Geo lookup failed — Check network';
+          matchEl.style.color = 'var(--text-muted)';
+        }
+      } catch (_) {
+        if (ipEl) ipEl.textContent = 'Network error';
+        if (cityEl) cityEl.textContent = 'Offline / no network';
+        if (matchEl) matchEl.textContent = 'Check failed';
+      }
+    } finally {
+      ipCheckInProgress = false;
+    }
+  }
+
+  async function updateNetShieldStatus(data) {
+    const shieldEl = document.getElementById('telem-shield');
+    const vpnEl = document.getElementById('telem-vpn');
+    const wifiEl = document.getElementById('telem-wifi-scan');
+
+    if (!data || !data.net) return;
+    const net = data.net;
+
+    if (shieldEl) {
+      const shieldOn = net.shield_active === true || net.shield_active === 'true';
+      shieldEl.textContent = shieldOn ? '🛡️ Active (GMS geo blocked)' : '⬜ Off';
+      shieldEl.style.color = shieldOn ? 'var(--emerald-active)' : 'var(--text-muted)';
+    }
+
+    if (vpnEl && net.vpn) {
+      const vpn = net.vpn;
+      const vpnOn = vpn.vpn_active === true || vpn.vpn_active === 'true';
+      vpnEl.textContent = vpnOn
+        ? `✅ Active — ${vpn.iface} (${vpn.tunnel_ip || 'tunneled'})`
+        : '❌ No VPN detected';
+      vpnEl.style.color = vpnOn ? 'var(--emerald-active)' : 'var(--rose-danger)';
+    }
+
+    if (wifiEl) {
+      const wifiScan = String(net.wifi_scan);
+      wifiEl.textContent = wifiScan === '0' ? '✅ Disabled (suppressed)' : '⚠️ Enabled (can leak location)';
+      wifiEl.style.color = wifiScan === '0' ? 'var(--emerald-active)' : 'var(--amber-warning)';
+    }
+  }
+
+  async function toggleNetShield() {
+    const shieldEl = document.getElementById('telem-shield');
+    const currentOn = shieldEl && shieldEl.textContent.includes('Active');
+    const action = currentOn ? 'off' : 'on';
+
+    showToast(`${action === 'on' ? 'Enabling' : 'Disabling'} network shield...`);
+    const cmd = `sh ${MODULE_SCRIPT_PATH} net-shield ${action}`;
+    const res = await execCmd(cmd);
+
+    if (res && res.errno === 0) {
+      showToast(`Network shield ${action === 'on' ? 'ENABLED 🛡️' : 'DISABLED'}`);
+      await fetchDaemonStatus();
+    } else {
+      showToast('Shield toggle failed (check daemon log)');
+    }
+  }
+
+  /* -------------------------------------------------------------------------- */
   /* Daemon Polling & Sync                                                      */
   /* -------------------------------------------------------------------------- */
 
@@ -617,6 +781,9 @@
           el.telemMockApp.textContent = data.mock_location_app === "none" ? "None (Undetected)" : data.mock_location_app;
         }
 
+        // Update network shield / VPN status
+        await updateNetShieldStatus(data);
+
         renderState();
       }
     } catch (e) {
@@ -633,11 +800,48 @@
     setupEventListeners();
     renderState();
 
+    // IP panel accordion
+    const ipToggle = document.getElementById('ip-panel-toggle');
+    const ipBody = document.getElementById('ip-panel-body');
+    if (ipToggle && ipBody) {
+      ipToggle.addEventListener('click', () => {
+        ipToggle.classList.toggle('collapsed');
+        ipBody.classList.toggle('hidden');
+      });
+    }
+
+    // IP check button
+    const btnCheckIp = document.getElementById('btn-check-ip');
+    if (btnCheckIp) {
+      btnCheckIp.addEventListener('click', () => {
+        fetchIpInfo();
+        showToast('Checking IP geolocation...');
+      });
+    }
+
+    // Shield toggle button
+    const btnShieldToggle = document.getElementById('btn-shield-toggle');
+    if (btnShieldToggle) {
+      btnShieldToggle.addEventListener('click', toggleNetShield);
+    }
+
     // Initial status check
     await fetchDaemonStatus();
 
+    // Fetch IP on load (non-blocking)
+    fetchIpInfo();
+
     // Periodic telemetry refresh every 4 seconds
     setInterval(fetchDaemonStatus, 4000);
+
+    // IP re-check when location changes (debounced 3s)
+    let ipRecheckTimer = null;
+    const origUpdateCoords = updateCoordinates;
+    // Re-check IP match whenever spoofed location changes significantly
+    setInterval(() => {
+      const shieldEl = document.getElementById('telem-ip-match');
+      if (shieldEl && shieldEl.textContent === '') fetchIpInfo();
+    }, 30000);
   }
 
   // Launch when DOM is ready
