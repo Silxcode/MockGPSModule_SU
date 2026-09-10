@@ -1,0 +1,650 @@
+/**
+ * KernelSU Mock GPS WebUI Application
+ * Handles Leaflet map interaction, coordinates management, and KernelSU root bridge.
+ */
+
+(function () {
+  'use strict';
+
+  // Constants & Paths
+  const MODULE_SCRIPT_PATH = '/data/adb/modules/ksu_fakegps/scripts/gps_control.sh';
+  const DEFAULT_LAT = 35.6895;
+  const DEFAULT_LNG = 139.6917;
+
+  // Application State
+  const state = {
+    isActive: false,
+    pid: 0,
+    lat: DEFAULT_LAT,
+    lng: DEFAULT_LNG,
+    accuracy: 5.0,
+    altitude: 40.0,
+    jitter: true,
+    bootPersist: false,
+    isKsuAvailable: false,
+    updateDebounceTimer: null
+  };
+
+  // DOM Elements
+  const el = {
+    map: document.getElementById('map'),
+    btnMasterToggle: document.getElementById('btn-master-toggle'),
+    textMasterToggle: document.getElementById('text-master-toggle'),
+    iconMasterState: document.getElementById('icon-master-state'),
+    badgeStatus: document.getElementById('badge-status'),
+    badgeStatusText: document.getElementById('badge-status-text'),
+    badgeDevOptions: document.getElementById('badge-dev-options'),
+    pillCoords: document.getElementById('pill-coords'),
+    btnCopyCoords: document.getElementById('btn-copy-coords'),
+    inputLat: document.getElementById('input-lat'),
+    inputLng: document.getElementById('input-lng'),
+    inputAccuracy: document.getElementById('input-accuracy'),
+    inputAltitude: document.getElementById('input-altitude'),
+    switchJitter: document.getElementById('switch-jitter'),
+    switchPersist: document.getElementById('switch-persist'),
+    searchForm: document.getElementById('search-form'),
+    searchInput: document.getElementById('search-input'),
+    btnLocateMe: document.getElementById('btn-locate-me'),
+    btnCenterPin: document.getElementById('btn-center-pin'),
+    btnToggleLayer: document.getElementById('btn-toggle-layer'),
+    presetsContainer: document.getElementById('presets-container'),
+    btnPresetsPrev: document.getElementById('btn-presets-prev'),
+    btnPresetsNext: document.getElementById('btn-presets-next'),
+    telemetryToggle: document.getElementById('telemetry-toggle'),
+    telemetryBody: document.getElementById('telemetry-body'),
+    telemDevOpts: document.getElementById('telem-dev-opts'),
+    telemMockApp: document.getElementById('telem-mock-app'),
+    telemPid: document.getElementById('telem-pid'),
+    telemBridge: document.getElementById('telem-bridge'),
+    toastContainer: document.getElementById('toast-container')
+  };
+
+  let map = null;
+  let targetMarker = null;
+  let isInitialLoad = true;
+
+  /* -------------------------------------------------------------------------- */
+  /* KernelSU Root Bridge Wrapper                                               */
+  /* -------------------------------------------------------------------------- */
+
+  async function execCmd(cmd) {
+    if (typeof ksu !== 'undefined' && ksu.exec) {
+      try {
+        state.isKsuAvailable = true;
+        const res = ksu.exec(cmd);
+        return (res instanceof Promise) ? await res : res;
+      } catch (e) {
+        return { errno: -1, stdout: '', stderr: String(e) };
+      }
+    } else if (window.ksu && window.ksu.exec) {
+      try {
+        state.isKsuAvailable = true;
+        const res = window.ksu.exec(cmd);
+        return (res instanceof Promise) ? await res : res;
+      } catch (e) {
+        return { errno: -1, stdout: '', stderr: String(e) };
+      }
+    }
+    
+    // Fallback Mock Mode for testing in desktop browser
+    return mockBrowserExec(cmd);
+  }
+
+  // Simulated browser environment for preview
+  function mockBrowserExec(cmd) {
+    state.isKsuAvailable = false;
+    console.log('[KernelSU Bridge Emulation] Executing:', cmd);
+    
+    if (cmd.includes('status')) {
+      return {
+        errno: 0,
+        stdout: JSON.stringify({
+          active: state.isActive,
+          pid: state.isActive ? 9482 : 0,
+          dev_options_enabled: "0",
+          mock_location_app: "none",
+          config: {
+            enabled: state.isActive,
+            latitude: state.lat,
+            longitude: state.lng,
+            accuracy: state.accuracy,
+            altitude: state.altitude,
+            jitter: state.jitter,
+            boot_persist: state.bootPersist
+          },
+          status: {
+            active: state.isActive,
+            latitude: state.lat,
+            longitude: state.lng,
+            accuracy: state.accuracy,
+            altitude: state.altitude
+          }
+        }),
+        stderr: ''
+      };
+    }
+    if (cmd.includes('start')) {
+      state.isActive = true;
+      state.pid = 9482;
+      return { errno: 0, stdout: '{"success":true,"pid":9482}', stderr: '' };
+    }
+    if (cmd.includes('stop')) {
+      state.isActive = false;
+      state.pid = 0;
+      return { errno: 0, stdout: '{"success":true}', stderr: '' };
+    }
+    if (cmd.includes('set')) {
+      return { errno: 0, stdout: '{"success":true}', stderr: '' };
+    }
+    return { errno: 0, stdout: 'OK', stderr: '' };
+  }
+
+  /* -------------------------------------------------------------------------- */
+  /* Toast Notification Helper                                                 */
+  /* -------------------------------------------------------------------------- */
+
+  function showToast(message, duration = 2800) {
+    if (typeof ksu !== 'undefined' && ksu.toast) {
+      ksu.toast(message);
+    } else if (window.ksu && window.ksu.toast) {
+      window.ksu.toast(message);
+    }
+
+    const toast = document.createElement('div');
+    toast.className = 'toast';
+    toast.textContent = message;
+    el.toastContainer.appendChild(toast);
+
+    setTimeout(() => {
+      toast.style.opacity = '0';
+      toast.style.transform = 'translateY(-10px)';
+      toast.style.transition = 'all 0.3s ease';
+      setTimeout(() => toast.remove(), 300);
+    }, duration);
+  }
+
+  /* -------------------------------------------------------------------------- */
+  /* Tile Providers & Layer Switching                                          */
+  /* -------------------------------------------------------------------------- */
+
+  const TILE_PROVIDERS = {
+    dark: {
+      name: "Dark Canvas (Clean & Crisp)",
+      url: "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}",
+      options: { maxNativeZoom: 16, maxZoom: 19 }
+    },
+    satellite: {
+      name: "Google Satellite / Roads",
+      url: "https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}",
+      options: { maxZoom: 20 }
+    },
+    streets: {
+      name: "OpenStreetMap Streets",
+      url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+      options: { maxZoom: 19 }
+    }
+  };
+
+  let currentLayerKey = localStorage.getItem('ksu_tile_layer') || 'dark';
+  let activeTileLayer = null;
+
+  function applyTileLayer(key) {
+    if (activeTileLayer && map) {
+      map.removeLayer(activeTileLayer);
+    }
+    const provider = TILE_PROVIDERS[key] || TILE_PROVIDERS.dark;
+    currentLayerKey = key;
+    try {
+      localStorage.setItem('ksu_tile_layer', key);
+    } catch(e) {}
+    activeTileLayer = L.tileLayer(provider.url, provider.options).addTo(map);
+  }
+
+  /* -------------------------------------------------------------------------- */
+  /* Leaflet Map Setup                                                          */
+  /* -------------------------------------------------------------------------- */
+
+  function initMap() {
+    map = L.map('map', {
+      center: [state.lat, state.lng],
+      zoom: 15,
+      zoomControl: false,
+      attributionControl: false
+    });
+
+    // Apply default tile layer (CartoDB Dark Matter)
+    applyTileLayer(currentLayerKey);
+
+    // Custom Glowing Radar Marker
+    const radarIcon = L.divIcon({
+      className: 'pulse-marker',
+      html: '<div class="pulse-marker-ring"></div><div class="pulse-marker-center"></div>',
+      iconSize: [24, 24],
+      iconAnchor: [12, 12]
+    });
+
+    targetMarker = L.marker([state.lat, state.lng], {
+      icon: radarIcon,
+      draggable: true
+    }).addTo(map);
+
+    // Marker Drag Handlers
+    targetMarker.on('drag', function (e) {
+      const pos = e.target.getLatLng();
+      updateCoordinates(pos.lat, pos.lng, false);
+    });
+
+    targetMarker.on('dragend', function (e) {
+      const pos = e.target.getLatLng();
+      updateCoordinates(pos.lat, pos.lng, true);
+    });
+
+    // Map Click Handler (move pin to clicked point)
+    map.on('click', function (e) {
+      updateCoordinates(e.latlng.lat, e.latlng.lng, true);
+    });
+
+    // Locate Me Button
+    el.btnLocateMe.addEventListener('click', () => {
+      if (navigator.geolocation) {
+        showToast("Locating device...");
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            const { latitude, longitude } = pos.coords;
+            updateCoordinates(latitude, longitude, true);
+            map.flyTo([latitude, longitude], 16, { duration: 1.2 });
+            showToast("Centered to your location");
+          },
+          (err) => {
+            showToast("Geolocation unavailable: " + err.message);
+          },
+          { enableHighAccuracy: true, timeout: 5000 }
+        );
+      } else {
+        showToast("Geolocation not supported");
+      }
+    });
+
+    // Center on Pin Button
+    el.btnCenterPin.addEventListener('click', () => {
+      map.flyTo([state.lat, state.lng], 16, { duration: 0.8 });
+    });
+
+    // Switch Tile Layer Button
+    el.btnToggleLayer.addEventListener('click', () => {
+      const keys = Object.keys(TILE_PROVIDERS);
+      const nextIdx = (keys.indexOf(currentLayerKey) + 1) % keys.length;
+      const nextKey = keys[nextIdx];
+      applyTileLayer(nextKey);
+      showToast(`Map Style: ${TILE_PROVIDERS[nextKey].name}`);
+    });
+  }
+
+  /* -------------------------------------------------------------------------- */
+  /* Coordinates & State Synchronization                                        */
+  /* -------------------------------------------------------------------------- */
+
+  function updateCoordinates(lat, lng, syncDaemon = false) {
+    state.lat = parseFloat(lat.toFixed(7));
+    state.lng = parseFloat(lng.toFixed(7));
+
+    // Update marker position if it differs
+    if (targetMarker) {
+      const currentPos = targetMarker.getLatLng();
+      if (currentPos.lat !== state.lat || currentPos.lng !== state.lng) {
+        targetMarker.setLatLng([state.lat, state.lng]);
+      }
+    }
+
+    // Sync input fields
+    el.inputLat.value = state.lat;
+    el.inputLng.value = state.lng;
+
+    // Sync Pill
+    el.pillCoords.textContent = `${state.lat.toFixed(6)}, ${state.lng.toFixed(6)}`;
+
+    // If active and sync requested, push updates to daemon
+    if (state.isActive && syncDaemon) {
+      debounceSyncToDaemon();
+    }
+  }
+
+  function debounceSyncToDaemon() {
+    clearTimeout(state.updateDebounceTimer);
+    state.updateDebounceTimer = setTimeout(async () => {
+      const cmd = `sh ${MODULE_SCRIPT_PATH} set ${state.lat} ${state.lng} ${state.altitude} ${state.accuracy} ${state.jitter}`;
+      await execCmd(cmd);
+      showToast(`Coordinates updated: ${state.lat.toFixed(4)}, ${state.lng.toFixed(4)}`);
+    }, 300);
+  }
+
+  /* -------------------------------------------------------------------------- */
+  /* UI Updates & Rendering                                                     */
+  /* -------------------------------------------------------------------------- */
+
+  function renderState() {
+    if (state.isActive) {
+      // Button: Active (Stop)
+      el.btnMasterToggle.className = 'btn-master btn-stop';
+      el.textMasterToggle.textContent = 'STOP SPOOFING';
+      el.iconMasterState.innerHTML = '<rect x="6" y="6" width="12" height="12" rx="2"></rect>';
+
+      // Badges
+      el.badgeStatus.className = 'badge badge-status active';
+      el.badgeStatusText.textContent = 'ACTIVE';
+
+      // Telemetry
+      el.telemPid.textContent = `Running (PID: ${state.pid || 'Active'})`;
+      el.telemPid.style.color = 'var(--emerald-active)';
+    } else {
+      // Button: Inactive (Start)
+      el.btnMasterToggle.className = 'btn-master btn-start';
+      el.textMasterToggle.textContent = 'START SPOOFING';
+      el.iconMasterState.innerHTML = '<polygon points="5 3 19 12 5 21 5 3"></polygon>';
+
+      // Badges
+      el.badgeStatus.className = 'badge badge-status';
+      el.badgeStatusText.textContent = 'IDLE';
+
+      // Telemetry
+      el.telemPid.textContent = 'Stopped';
+      el.telemPid.style.color = 'var(--text-muted)';
+    }
+
+    // Bridge status
+    el.telemBridge.textContent = state.isKsuAvailable 
+      ? 'KernelSU Root Bridge (Connected)' 
+      : 'WebUI Sandbox / Emulated Bridge';
+    el.telemBridge.style.color = state.isKsuAvailable ? 'var(--cyan-hover)' : 'var(--amber-warning)';
+  }
+
+  /* -------------------------------------------------------------------------- */
+  /* Event Listeners & Interactions                                             */
+  /* -------------------------------------------------------------------------- */
+
+  function setupEventListeners() {
+    // Master Toggle Button
+    el.btnMasterToggle.addEventListener('click', async () => {
+      if (state.isActive) {
+        // Stop Spoofing
+        const res = await execCmd(`sh ${MODULE_SCRIPT_PATH} stop`);
+        state.isActive = false;
+        state.pid = 0;
+        renderState();
+        showToast("Mock GPS Stopped - Real location restored");
+      } else {
+        // Start Spoofing
+        showToast("Starting Mock GPS Daemon...");
+        // 1. Update config values
+        const configJson = JSON.stringify({
+          enabled: true,
+          latitude: state.lat,
+          longitude: state.lng,
+          altitude: state.altitude,
+          accuracy: state.accuracy,
+          jitter: state.jitter,
+          interval: 1.0,
+          boot_persist: state.bootPersist
+        });
+        await execCmd(`sh ${MODULE_SCRIPT_PATH} save-config '${configJson}'`);
+        
+        // 2. Launch daemon
+        const res = await execCmd(`sh ${MODULE_SCRIPT_PATH} start`);
+        state.isActive = true;
+        renderState();
+        await fetchDaemonStatus();
+        showToast("Mock GPS Active! Dev Options remained OFF.");
+      }
+    });
+
+    // Inputs Change (Lat / Lng)
+    el.inputLat.addEventListener('change', () => {
+      const val = parseFloat(el.inputLat.value);
+      if (!isNaN(val) && val >= -90 && val <= 90) {
+        updateCoordinates(val, state.lng, true);
+        map.panTo([state.lat, state.lng]);
+      }
+    });
+
+    el.inputLng.addEventListener('change', () => {
+      const val = parseFloat(el.inputLng.value);
+      if (!isNaN(val) && val >= -180 && val <= 180) {
+        updateCoordinates(state.lat, val, true);
+        map.panTo([state.lat, state.lng]);
+      }
+    });
+
+    // Accuracy & Altitude
+    el.inputAccuracy.addEventListener('change', () => {
+      state.accuracy = parseFloat(el.inputAccuracy.value) || 5.0;
+      if (state.isActive) debounceSyncToDaemon();
+    });
+
+    el.inputAltitude.addEventListener('change', () => {
+      state.altitude = parseFloat(el.inputAltitude.value) || 40.0;
+      if (state.isActive) debounceSyncToDaemon();
+    });
+
+    // Switches
+    el.switchJitter.addEventListener('change', () => {
+      state.jitter = el.switchJitter.checked;
+      if (state.isActive) debounceSyncToDaemon();
+      showToast(state.jitter ? "Satellite drift enabled" : "Satellite drift disabled");
+    });
+
+    el.switchPersist.addEventListener('change', async () => {
+      state.bootPersist = el.switchPersist.checked;
+      const configJson = JSON.stringify({
+        enabled: state.isActive,
+        latitude: state.lat,
+        longitude: state.lng,
+        altitude: state.altitude,
+        accuracy: state.accuracy,
+        jitter: state.jitter,
+        interval: 1.0,
+        boot_persist: state.bootPersist
+      });
+      await execCmd(`sh ${MODULE_SCRIPT_PATH} save-config '${configJson}'`);
+      showToast(state.bootPersist ? "Will persist after boot" : "Boot persistence disabled");
+    });
+
+    // Preset Scroll Buttons
+    if (el.btnPresetsPrev) {
+      el.btnPresetsPrev.addEventListener('click', () => {
+        el.presetsContainer.scrollBy({ left: -240, behavior: 'smooth' });
+      });
+    }
+
+    if (el.btnPresetsNext) {
+      el.btnPresetsNext.addEventListener('click', () => {
+        el.presetsContainer.scrollBy({ left: 240, behavior: 'smooth' });
+      });
+    }
+
+    // Horizontal Mouse Wheel Scroll for Presets
+    if (el.presetsContainer) {
+      el.presetsContainer.addEventListener('wheel', (e) => {
+        if (e.deltaY !== 0) {
+          e.preventDefault();
+          el.presetsContainer.scrollLeft += e.deltaY;
+        }
+      }, { passive: false });
+
+      // Mouse Drag-to-Scroll for Presets
+      let isDraggingPresets = false;
+      let presetsStartX = 0;
+      let presetsScrollLeft = 0;
+      let hasDragged = false;
+
+      el.presetsContainer.addEventListener('mousedown', (e) => {
+        isDraggingPresets = true;
+        hasDragged = false;
+        presetsStartX = e.pageX;
+        presetsScrollLeft = el.presetsContainer.scrollLeft;
+      });
+
+      window.addEventListener('mouseup', () => {
+        if (isDraggingPresets) {
+          isDraggingPresets = false;
+          setTimeout(() => { hasDragged = false; }, 60);
+        }
+      });
+
+      window.addEventListener('mousemove', (e) => {
+        if (!isDraggingPresets) return;
+        const walk = (e.pageX - presetsStartX) * 1.3;
+        if (Math.abs(walk) > 4) {
+          hasDragged = true;
+        }
+        el.presetsContainer.scrollLeft = presetsScrollLeft - walk;
+      });
+
+      // Preset Chips Click Handler
+      el.presetsContainer.addEventListener('click', (e) => {
+        if (hasDragged) {
+          hasDragged = false;
+          return;
+        }
+        const chip = e.target.closest('.preset-chip');
+        if (!chip) return;
+        const lat = parseFloat(chip.dataset.lat);
+        const lng = parseFloat(chip.dataset.lng);
+        const name = chip.dataset.name;
+
+        updateCoordinates(lat, lng, true);
+        map.flyTo([lat, lng], 15, { duration: 1.5 });
+        showToast(`Moved to ${name}`);
+      });
+    }
+
+    // Search Location (Nominatim OpenStreetMap)
+    el.searchForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const query = el.searchInput.value.trim();
+      if (!query) return;
+
+      showToast(`Searching for "${query}"...`);
+      try {
+        const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`;
+        const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+        const data = await res.json();
+
+        if (data && data.length > 0) {
+          const lat = parseFloat(data[0].lat);
+          const lng = parseFloat(data[0].lon);
+          updateCoordinates(lat, lng, true);
+          map.flyTo([lat, lng], 16, { duration: 1.2 });
+          showToast(`Found: ${data[0].display_name.split(',')[0]}`);
+        } else {
+          showToast("Location not found. Try different keywords.");
+        }
+      } catch (err) {
+        showToast("Search failed: Check network connection");
+      }
+    });
+
+    // Copy Coordinates Button
+    el.btnCopyCoords.addEventListener('click', () => {
+      const text = `${state.lat}, ${state.lng}`;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => {
+          showToast("Coordinates copied to clipboard!");
+        });
+      } else {
+        // Fallback
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        ta.remove();
+        showToast("Coordinates copied to clipboard!");
+      }
+    });
+
+    // Telemetry Collapsible Accordion
+    el.telemetryToggle.addEventListener('click', () => {
+      el.telemetryToggle.classList.toggle('collapsed');
+      el.telemetryBody.classList.toggle('hidden');
+    });
+  }
+
+  /* -------------------------------------------------------------------------- */
+  /* Daemon Polling & Sync                                                      */
+  /* -------------------------------------------------------------------------- */
+
+  async function fetchDaemonStatus() {
+    try {
+      const res = await execCmd(`sh ${MODULE_SCRIPT_PATH} status`);
+      if (res && res.stdout) {
+        const data = JSON.parse(res.stdout);
+        
+        state.isActive = !!data.active;
+        state.pid = data.pid || 0;
+
+        // Sync config if available
+        if (data.config && typeof data.config.latitude === 'number') {
+          state.lat = data.config.latitude;
+          state.lng = data.config.longitude;
+          state.accuracy = data.config.accuracy ?? state.accuracy;
+          state.altitude = data.config.altitude ?? state.altitude;
+          state.jitter = data.config.jitter ?? state.jitter;
+          state.bootPersist = data.config.boot_persist ?? state.bootPersist;
+
+          // Update UI controls
+          el.inputAccuracy.value = state.accuracy;
+          el.inputAltitude.value = state.altitude;
+          el.switchJitter.checked = state.jitter;
+          el.switchPersist.checked = state.bootPersist;
+
+          updateCoordinates(state.lat, state.lng, false);
+          if (isInitialLoad && map) {
+            map.setView([state.lat, state.lng], 15);
+            isInitialLoad = false;
+          }
+        }
+
+        // Developer Options Status Readout
+        if (data.dev_options_enabled === "0") {
+          el.telemDevOpts.textContent = "Disabled (value: 0) [Safe]";
+          el.telemDevOpts.className = "telemetry-val val-secure";
+        } else {
+          el.telemDevOpts.textContent = `Enabled (value: ${data.dev_options_enabled})`;
+          el.telemDevOpts.className = "telemetry-val";
+        }
+
+        if (data.mock_location_app) {
+          el.telemMockApp.textContent = data.mock_location_app === "none" ? "None (Undetected)" : data.mock_location_app;
+        }
+
+        renderState();
+      }
+    } catch (e) {
+      console.warn("Status poll error:", e);
+    }
+  }
+
+  /* -------------------------------------------------------------------------- */
+  /* Application Initialization                                                 */
+  /* -------------------------------------------------------------------------- */
+
+  async function init() {
+    initMap();
+    setupEventListeners();
+    renderState();
+
+    // Initial status check
+    await fetchDaemonStatus();
+
+    // Periodic telemetry refresh every 4 seconds
+    setInterval(fetchDaemonStatus, 4000);
+  }
+
+  // Launch when DOM is ready
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+
+})();

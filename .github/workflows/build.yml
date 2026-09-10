@@ -1,0 +1,33 @@
+name: Build & Release Module
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build flashable zip
+        run: |
+          VERSION=${GITHUB_REF_NAME:-v1.0.0}
+          ZIP_NAME="ksu_fakegps_${VERSION}.zip"
+          zip -r9 "$ZIP_NAME" ./* -x ".git*" -x ".github*" -x "*.zip"
+          echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: ${{ env.ZIP_NAME }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true

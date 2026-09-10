@@ -1,0 +1,20 @@
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Local builds & packages (distribute via GitHub Releases)
+*.zip
+*.tar.gz
+
+# Runtime/daemon files (created on-device)
+daemon.pid
+status.json
+status.json.tmp
+config.json.tmp
+*.log
+
+# IDE & Editor files
+.vscode/
+.idea/
+*.swp
+*~

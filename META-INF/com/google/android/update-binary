@@ -1,0 +1,38 @@
+#!/sbin/sh
+##########################################################################################
+#
+# KernelSU / Magisk / APatch Universal Module Installer
+#
+##########################################################################################
+
+umask 022
+
+ui_print() {
+  echo "$1"
+}
+
+require_root_env() {
+  ui_print "*****************************************"
+  ui_print " Error: Please flash via KernelSU Manager,"
+  ui_print " APatch, or Magisk Manager!              "
+  ui_print "*****************************************"
+  exit 1
+}
+
+OUTFD=$2
+ZIPFILE=$3
+
+mount /data 2>/dev/null
+
+if [ -f /data/adb/ksu/util_functions.sh ]; then
+  . /data/adb/ksu/util_functions.sh
+elif [ -f /data/adb/magisk/util_functions.sh ]; then
+  . /data/adb/magisk/util_functions.sh
+elif [ -f /data/adb/ap/util_functions.sh ]; then
+  . /data/adb/ap/util_functions.sh
+else
+  require_root_env
+fi
+
+install_module
+exit 0

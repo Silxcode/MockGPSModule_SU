@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>KernelSU Mock GPS</title>
+  
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="css/leaflet.css">
+  
+  <!-- App Styles -->
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="app-container">
+    
+    <!-- Top Header -->
+    <header class="app-header">
+      <div class="brand-wrapper">
+        <div class="brand-icon">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+          </svg>
+        </div>
+        <div>
+          <h1 class="brand-title">KSU GPS GHOST</h1>
+          <p class="brand-subtitle">Root Provider Injection</p>
+        </div>
+      </div>
+      
+      <div class="header-badges">
+        <span class="badge badge-safe" id="badge-dev-options" title="Developer Options remain completely disabled in system settings">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          </svg>
+          Dev Options: OFF
+        </span>
+        <span class="badge badge-status" id="badge-status">
+          <span class="status-dot"></span>
+          <span id="badge-status-text">IDLE</span>
+        </span>
+      </div>
+    </header>
+
+    <!-- Search & Quick Presets -->
+    <section class="search-card">
+      <form class="search-form" id="search-form">
+        <div class="search-input-wrapper">
+          <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+          <input type="text" id="search-input" class="search-input" placeholder="Search city, address, landmark..." autocomplete="off">
+        </div>
+        <button type="submit" class="btn-search" id="btn-search">Search</button>
+      </form>
+    </section>
+
+    <!-- Preset Chips Scrollable Row with Navigation Buttons -->
+    <div class="presets-wrapper">
+      <button type="button" class="preset-nav-btn btn-prev" id="btn-presets-prev" title="Scroll left">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <polyline points="15 18 9 12 15 6"></polyline>
+        </svg>
+      </button>
+
+      <nav class="presets-container" id="presets-container" aria-label="City presets">
+        <button type="button" class="preset-chip" data-lat="35.6895" data-lng="139.6917" data-name="Tokyo">
+          🇯🇵 Tokyo
+        </button>
+        <button type="button" class="preset-chip" data-lat="40.7580" data-lng="-73.9855" data-name="New York">
+          🇺🇸 Times Sq, NY
+        </button>
+        <button type="button" class="preset-chip" data-lat="51.5007" data-lng="-0.1246" data-name="London">
+          🇬🇧 London
+        </button>
+        <button type="button" class="preset-chip" data-lat="48.8584" data-lng="2.2945" data-name="Paris">
+          🇫🇷 Paris
+        </button>
+        <button type="button" class="preset-chip" data-lat="19.0760" data-lng="72.8777" data-name="Mumbai">
+          🇮🇳 Mumbai
+        </button>
+        <button type="button" class="preset-chip" data-lat="28.6139" data-lng="77.2090" data-name="New Delhi">
+          🇮🇳 New Delhi
+        </button>
+        <button type="button" class="preset-chip" data-lat="25.1972" data-lng="55.2744" data-name="Dubai">
+          🇦🇪 Dubai
+        </button>
+        <button type="button" class="preset-chip" data-lat="1.2868" data-lng="103.8545" data-name="Singapore">
+          🇸🇬 Singapore
+        </button>
+        <button type="button" class="preset-chip" data-lat="-33.8568" data-lng="151.2153" data-name="Sydney">
+          🇦🇺 Sydney
+        </button>
+        <button type="button" class="preset-chip" data-lat="37.8199" data-lng="-122.4783" data-name="San Francisco">
+          🇺🇸 San Francisco
+        </button>
+        <button type="button" class="preset-chip" data-lat="34.0522" data-lng="-118.2437" data-name="Los Angeles">
+          🇺🇸 Los Angeles
+        </button>
+        <button type="button" class="preset-chip" data-lat="43.6532" data-lng="-79.3832" data-name="Toronto">
+          🇨🇦 Toronto
+        </button>
+        <button type="button" class="preset-chip" data-lat="52.5200" data-lng="13.4050" data-name="Berlin">
+          🇩🇪 Berlin
+        </button>
+        <button type="button" class="preset-chip" data-lat="41.9028" data-lng="12.4964" data-name="Rome">
+          🇮🇹 Rome
+        </button>
+        <button type="button" class="preset-chip" data-lat="41.3879" data-lng="2.1699" data-name="Barcelona">
+          🇪🇸 Barcelona
+        </button>
+        <button type="button" class="preset-chip" data-lat="52.3676" data-lng="4.9041" data-name="Amsterdam">
+          🇳🇱 Amsterdam
+        </button>
+        <button type="button" class="preset-chip" data-lat="37.5665" data-lng="126.9780" data-name="Seoul">
+          🇰🇷 Seoul
+        </button>
+        <button type="button" class="preset-chip" data-lat="13.7563" data-lng="100.5018" data-name="Bangkok">
+          🇹🇭 Bangkok
+        </button>
+        <button type="button" class="preset-chip" data-lat="-22.9068" data-lng="-43.1729" data-name="Rio de Janeiro">
+          🇧🇷 Rio
+        </button>
+        <button type="button" class="preset-chip" data-lat="30.0444" data-lng="31.2357" data-name="Cairo">
+          🇪🇬 Cairo
+        </button>
+        <button type="button" class="preset-chip" data-lat="41.0082" data-lng="28.9784" data-name="Istanbul">
+          🇹🇷 Istanbul
+        </button>
+        <button type="button" class="preset-chip" data-lat="-33.9249" data-lng="18.4241" data-name="Cape Town">
+          🇿🇦 Cape Town
+        </button>
+        <button type="button" class="preset-chip" data-lat="19.4326" data-lng="-99.1332" data-name="Mexico City">
+          🇲🇽 Mexico City
+        </button>
+        <button type="button" class="preset-chip" data-lat="47.3769" data-lng="8.5417" data-name="Zurich">
+          🇨🇭 Zurich
+        </button>
+      </nav>
+
+      <button type="button" class="preset-nav-btn btn-next" id="btn-presets-next" title="Scroll right">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <polyline points="9 18 15 12 9 6"></polyline>
+        </svg>
+      </button>
+    </div>
+
+    <!-- Map Section -->
+    <section class="map-card">
+      <div id="map"></div>
+      
+      <!-- Floating Map Buttons -->
+      <div class="map-floating-bar">
+        <button type="button" class="map-btn" id="btn-locate-me" title="Locate Device / Approximate IP">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="22" y1="12" x2="18" y2="12"></line>
+            <line x1="6" y1="12" x2="2" y2="12"></line>
+            <line x1="12" y1="6" x2="12" y2="2"></line>
+            <line x1="12" y1="22" x2="12" y2="18"></line>
+          </svg>
+        </button>
+        <button type="button" class="map-btn" id="btn-center-pin" title="Center on Target Pin">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 2a8 8 0 0 0-8 8c0 5.25 8 12 8 12s8-6.75 8-12a8 8 0 0 0-8-8z"/>
+            <circle cx="12" cy="10" r="3"/>
+          </svg>
+        </button>
+        <button type="button" class="map-btn" id="btn-toggle-layer" title="Switch Map Layer (Dark / Satellite / Streets)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+            <polyline points="2 17 12 22 22 17"></polyline>
+            <polyline points="2 12 12 17 22 12"></polyline>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Current Coordinate Pill -->
+      <div class="map-info-pill">
+        <span class="coords-text" id="pill-coords">35.689500, 139.691700</span>
+        <button type="button" class="btn-copy" id="btn-copy-coords" title="Copy Coordinates">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+          </svg>
+        </button>
+      </div>
+    </section>
+
+    <!-- Master Action Button -->
+    <section class="action-card">
+      <button type="button" class="btn-master btn-start" id="btn-master-toggle">
+        <svg id="icon-master-state" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <polygon points="5 3 19 12 5 21 5 3"></polygon>
+        </svg>
+        <span id="text-master-toggle">START SPOOFING</span>
+      </button>
+    </section>
+
+    <!-- Precision Controls Grid -->
+    <section class="controls-card">
+      <div class="card-title-row">
+        <h2 class="card-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 20V10M18 20V4M6 20v-4"/>
+          </svg>
+          Location Parameters
+        </h2>
+      </div>
+
+      <!-- Coordinates Fields -->
+      <div class="grid-2">
+        <div class="form-group">
+          <label class="form-label" for="input-lat">Latitude</label>
+          <input type="number" step="any" id="input-lat" class="form-input" value="35.6895">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="input-lng">Longitude</label>
+          <input type="number" step="any" id="input-lng" class="form-input" value="139.6917">
+        </div>
+      </div>
+
+      <!-- Fine-tuning Parameters -->
+      <div class="grid-2">
+        <div class="form-group">
+          <label class="form-label" for="input-accuracy">Accuracy (meters)</label>
+          <input type="number" step="0.5" min="1" max="50" id="input-accuracy" class="form-input" value="5.0">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="input-altitude">Altitude (meters)</label>
+          <input type="number" step="1" id="input-altitude" class="form-input" value="40.0">
+        </div>
+      </div>
+
+      <!-- Switches -->
+      <div class="switches-group">
+        <div class="switch-item">
+          <div class="switch-label-group">
+            <span class="switch-title">Atmospheric Satellite Jitter</span>
+            <span class="switch-desc">Simulates natural GNSS drift (±1.5m) to bypass static anti-cheat checks</span>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="switch-jitter" checked>
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="switch-item">
+          <div class="switch-label-group">
+            <span class="switch-title">Boot Persistence</span>
+            <span class="switch-desc">Automatically restore spoofed coordinates after reboot</span>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="switch-persist">
+            <span class="slider"></span>
+          </label>
+        </div>
+      </div>
+    </section>
+
+    <!-- Telemetry & Diagnostics -->
+    <section class="telemetry-card">
+      <div class="telemetry-header" id="telemetry-toggle">
+        <h3 class="telemetry-title">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect>
+            <rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
+            <line x1="6" y1="6" x2="6.01" y2="6"></line>
+            <line x1="6" y1="18" x2="6.01" y2="18"></line>
+          </svg>
+          System & Telemetry Diagnostics
+        </h3>
+        <svg class="chevron-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="6 9 12 15 18 9"></polyline>
+        </svg>
+      </div>
+
+      <div class="telemetry-content" id="telemetry-body">
+        <div class="telemetry-row">
+          <span class="telemetry-key">Developer Options Setting</span>
+          <span class="telemetry-val val-secure" id="telem-dev-opts">Disabled (value: 0)</span>
+        </div>
+        <div class="telemetry-row">
+          <span class="telemetry-key">Mock App in Settings</span>
+          <span class="telemetry-val val-secure" id="telem-mock-app">None (Undetected)</span>
+        </div>
+        <div class="telemetry-row">
+          <span class="telemetry-key">Active Injected Providers</span>
+          <span class="telemetry-val" id="telem-providers">gps, network, fused</span>
+        </div>
+        <div class="telemetry-row">
+          <span class="telemetry-key">Root Daemon Process</span>
+          <span class="telemetry-val" id="telem-pid">Stopped</span>
+        </div>
+        <div class="telemetry-row">
+          <span class="telemetry-key">KernelSU Bridge Interface</span>
+          <span class="telemetry-val" id="telem-bridge">Detecting...</span>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <!-- Scripts -->
+  <script src="js/leaflet.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
