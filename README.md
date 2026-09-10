@@ -1,30 +1,30 @@
-# KSU Location Sandbox
+# KSU Location Sandbox (Mock GPS & Geolocation Suite)
 
 [![KernelSU Compatible](https://img.shields.io/badge/KernelSU-Supported-emerald.svg)](https://kernelsu.org/)
 [![Android Version](https://img.shields.io/badge/Android-10%20to%2015-blue.svg)](https://developer.android.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A lightweight, developer-oriented geolocation simulation and privacy testing suite for **KernelSU**, **KernelSU Next**, and **APatch** (also compatible with **Magisk**).
+A lightweight, developer-oriented **Mock GPS** and geolocation simulation suite for **KernelSU**, **KernelSU Next**, and **APatch** (also compatible with **Magisk**).
 
-Equipped with an on-device **WebUI**, it allows mobile application developers, QA engineers, and security researchers to simulate GPS coordinates and test location-based features directly through Android's system test provider APIs — without needing to turn on "Developer Options" or select a third-party mock location app in system settings.
+Equipped with an on-device **WebUI**, it operates as a system-level **Mock GPS provider**, allowing mobile application developers, QA engineers, and security researchers to simulate GPS coordinates and test location-based features directly through Android's test provider APIs — without needing to turn on "Developer Options" or select a third-party mock location app in system settings.
 
 ---
 
 ## Why I Built This
 
-When developing or QA-testing location-aware Android applications (such as geofencing, delivery logistics, mapping, or regional feature flags), developers often face practical hurdles:
+When developing or QA-testing location-aware Android applications (such as geofencing, delivery logistics, mapping, or regional feature flags), traditional Play Store **mock GPS apps** present several hurdles:
 
-1. **Enterprise & MDM Policy Conflicts:** Many test devices enrolled in corporate MDM profiles or enterprise test suites strictly restrict enabling "Developer Options".
-2. **Ad-Ridden Third-Party Mock Apps:** Most Play Store mock location tools bundle invasive analytics SDKs, full-screen ads, and background trackers.
-3. **Realistic Sensor Testing:** Real-world GPS signals naturally drift by 1–2 meters due to atmospheric interference. Standard mock tools feed frozen, static coordinates down to 8 decimal places, preventing developers from validating noise-filtering and Kalman filter algorithms.
+1. **Enterprise & MDM Policy Conflicts:** Standard mock GPS tools require enabling "Developer Options" in Android settings. Many test devices enrolled in corporate MDM profiles or enterprise test suites strictly prohibit this.
+2. **Ad-Ridden Third-Party Mock GPS Apps:** Most free mock GPS apps bundle invasive analytics SDKs, full-screen ads, and background battery drain.
+3. **Realistic Sensor Testing:** Real-world GPS signals naturally drift by 1–2 meters due to atmospheric interference. Standard mock GPS tools feed frozen, static coordinates down to 8 decimal places, preventing developers from validating noise-filtering and Kalman filter algorithms.
 
-This module provides a clean, open-source, root-level environment that bridges Android's built-in `cmd location` test provider interface directly to a clean interactive map on your phone.
+This module provides a clean, open-source, root-level environment that bridges Android's built-in `cmd location` test provider interface directly to an interactive map on your phone.
 
 ---
 
 ## Features
 
-- **No Developer Options Toggle Required:** Leverages root shell access (`uid 0`) to communicate directly with Android's `LocationManagerService`. The system setting `development_settings_enabled` stays `0` (Disabled).
+- **Root-Level Mock GPS (No Developer Options Needed):** Leverages root shell access (`uid 0`) to inject test location data directly into Android's `LocationManagerService`. The system setting `development_settings_enabled` stays `0` (Disabled).
 - **Embedded On-Device WebUI:** Tap the module inside KernelSU Manager to open a complete, responsive map interface powered by Leaflet.js.
 - **Multiple Map Layers (No API Keys Needed):**
   - **Dark Canvas:** Clean, high-contrast vector tiles that seamlessly blend with the UI.
