@@ -1,96 +1,111 @@
-# KernelSU Mock GPS (WebUI)
-**System-level Mock GPS without Developer Options Toggle**
+# KSU Location Sandbox
 
-A specialized module for **KernelSU**, **KernelSU Next**, and **APatch** (also compatible with **Magisk**) that spoofs your Android device's GPS coordinates using system-level root test providers while keeping **Developer Options completely OFF**.
+[![KernelSU Compatible](https://img.shields.io/badge/KernelSU-Supported-emerald.svg)](https://kernelsu.org/)
+[![Android Version](https://img.shields.io/badge/Android-10%20to%2015-blue.svg)](https://developer.android.com/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
----
+A lightweight, developer-oriented geolocation simulation and privacy testing suite for **KernelSU**, **KernelSU Next**, and **APatch** (also compatible with **Magisk**).
 
-## Key Highlights
-
-- **Zero Developer Options Required:** Standard mock location requires toggling Developer Options and selecting a mock location app. Strict apps (banking, rideshare, games) instantly detect this. This module operates via KernelSU root (`uid 0`), injecting directly into Android's `LocationManagerService` test providers.
-- **Embedded WebUI:** Tap the module in KernelSU Manager to open a complete, interactive Leaflet map interface directly on your device.
-- **Atmospheric Satellite Jitter:** Simulates authentic GNSS micro-drift (±1.5 meters) so your coordinates do not appear artificially frozen to anti-cheat algorithms.
-- **Multi-Provider Injection:** Simultaneously registers and updates `gps`, `network`, and `fused` providers to ensure both standard location queries and Google Play Services location clients receive the spoofed fix.
-- **Boot Persistence:** Optional toggle to automatically resume spoofing the last known coordinates after device reboot.
+Equipped with an on-device **WebUI**, it allows mobile application developers, QA engineers, and security researchers to simulate GPS coordinates and test location-based features directly through Android's system test provider APIs — without needing to turn on "Developer Options" or select a third-party mock location app in system settings.
 
 ---
 
-## Module Structure
+## Why I Built This
+
+When developing or QA-testing location-aware Android applications (such as geofencing, delivery logistics, mapping, or regional feature flags), developers often face practical hurdles:
+
+1. **Enterprise & MDM Policy Conflicts:** Many test devices enrolled in corporate MDM profiles or enterprise test suites strictly restrict enabling "Developer Options".
+2. **Ad-Ridden Third-Party Mock Apps:** Most Play Store mock location tools bundle invasive analytics SDKs, full-screen ads, and background trackers.
+3. **Realistic Sensor Testing:** Real-world GPS signals naturally drift by 1–2 meters due to atmospheric interference. Standard mock tools feed frozen, static coordinates down to 8 decimal places, preventing developers from validating noise-filtering and Kalman filter algorithms.
+
+This module provides a clean, open-source, root-level environment that bridges Android's built-in `cmd location` test provider interface directly to a clean interactive map on your phone.
+
+---
+
+## Features
+
+- **No Developer Options Toggle Required:** Leverages root shell access (`uid 0`) to communicate directly with Android's `LocationManagerService`. The system setting `development_settings_enabled` stays `0` (Disabled).
+- **Embedded On-Device WebUI:** Tap the module inside KernelSU Manager to open a complete, responsive map interface powered by Leaflet.js.
+- **Multiple Map Layers (No API Keys Needed):**
+  - **Dark Canvas:** Clean, high-contrast vector tiles that seamlessly blend with the UI.
+  - **Satellite / Hybrid:** Photorealistic aerial imagery with street labels.
+  - **OpenStreetMap:** Classic street cartography.
+- **Realistic Atmospheric Drift:** Built-in micro-jitter engine simulates authentic satellite signal fluctuation (±1.5m) so you can test how your app handles live sensor noise.
+- **Multi-Provider Injection:** Automatically binds to `gps`, `network`, and `fused` providers for consistent behavior across both native Android location APIs and Google Play Services.
+- **Bootloop-Safe Architecture:** 
+  - Zero modifications to `/system` or `/vendor` partitions.
+  - No `system.prop` alterations.
+  - Zero `post-fs-data.sh` early-boot scripts.
+  - Late-boot service runs detached with a 60-second watchdog timeout.
+- **Offline Capable:** The core map engine, styles, and controls are completely vendored and bundled within the module. You can test manual coordinates and presets even in airplane mode.
+
+---
+
+## Technical Architecture
 
 ```text
-ksu_fakegps_v1.0.0.zip
-├── META-INF/com/google/android/
-│   ├── update-binary          # Universal installer script
-│   └── updater-script         # Marker
-├── module.prop                # Module ID, name, author, version
-├── customize.sh               # Post-install permissions & setup
-├── service.sh                 # Late-boot persistence service
-├── action.sh                  # KernelSU Quick Action button trigger
-├── scripts/
-│   ├── gps_daemon.sh          # Background root coordinate injection loop
-│   └── gps_control.sh         # CLI control script (start, stop, status, set)
-└── webroot/                   # On-device WebUI
-    ├── index.html             # Main interface
-    ├── css/
-    │   ├── style.css          # Dark cyber aesthetic styles
-    │   ├── leaflet.css        # Bundled Leaflet styles
-    │   └── images/            # Leaflet marker icons
-    └── js/
-        ├── leaflet.js         # Bundled Leaflet map engine
-        └── app.js             # WebUI logic and ksu.exec bridge
+Android Framework (system_server)
+       ▲
+       │  cmd location providers set-test-provider-location
+       ▼
+gps_daemon.sh  ◄───  gps_control.sh  ◄───  WebUI (ksu.exec bridge)
+ (Root Loop)           (CLI Utility)            (KernelSU WebView)
 ```
 
----
-
-## How to Install
-
-1. Download or copy `ksu_fakegps_v1.0.0.zip` to your phone.
-2. Open **KernelSU Manager** (or APatch / Magisk).
-3. Navigate to **Modules** -> **Install from storage**.
-4. Select `ksu_fakegps_v1.0.0.zip`.
-5. Once installation finishes, **Reboot** your device.
-6. After reboot, open **KernelSU Manager**, go to **Modules**, and tap on **KernelSU Mock GPS** to open the WebUI!
+1. **WebUI:** Runs inside KernelSU Manager's sandboxed WebView (`webroot/index.html`). User interactions trigger shell commands via the `ksu.exec()` JavaScript bridge.
+2. **Controller (`gps_control.sh`):** Handles state updates, reads current system parameters, and manages daemon lifecycles.
+3. **Daemon (`gps_daemon.sh`):** A lightweight background POSIX shell loop that updates system test providers at configurable intervals.
 
 ---
 
-## WebUI Controls
+## Installation
 
-- **Interactive Map:** Tap anywhere or drag the glowing radar pin to choose your location.
-- **Preset Chips:** Quick-teleport to iconic cities (Tokyo, New York, London, Paris, Sydney, Dubai, Singapore, San Francisco).
-- **Search Bar:** Type any city or landmark to look up coordinates.
-- **Master Button:** Tap **START SPOOFING** to begin broadcasting; tap **STOP SPOOFING** to cleanly restore genuine GPS.
-- **Parameters:** Fine-tune accuracy (meters), altitude (meters), satellite jitter, and boot persistence.
-- **Live Diagnostics:** Shows current daemon PID, Developer Options state (`Disabled (value: 0)`), and injected providers.
+### Prerequisites
+- A device rooted with **KernelSU** (v0.9.0+), **KernelSU Next**, **APatch**, or **Magisk** (v20.4+).
+- Android 10, 11, 12, 13, 14, or 15.
+
+### Flashing Steps
+1. Download the latest `ksu_fakegps_vX.X.X.zip` from [Releases](https://github.com).
+2. Open your root manager app (**KernelSU Manager** / **APatch** / **Magisk**).
+3. Navigate to **Modules** ➔ **Install from storage**.
+4. Select the downloaded `.zip` file.
+5. Reboot your device after installation completes.
+6. Open **KernelSU Manager**, go to **Modules**, and tap **KSU Location Sandbox** to launch the WebUI.
 
 ---
 
-## Terminal / CLI Commands
+## CLI / Automation Usage
 
-You can also manage the spoofing directly from Termux or ADB root shell:
+For automated testing or headless CI scripts via ADB:
 
 ```bash
-# Check status
+# Check daemon and system status
 su -c "/data/adb/modules/ksu_fakegps/scripts/gps_control.sh status"
 
-# Start spoofing
+# Set target coordinates (lat, lng, altitude, accuracy, jitter)
+su -c "/data/adb/modules/ksu_fakegps/scripts/gps_control.sh set 37.7749 -122.4194 15.0 4.5 true"
+
+# Start simulation
 su -c "/data/adb/modules/ksu_fakegps/scripts/gps_control.sh start"
 
-# Set new coordinates (latitude, longitude, altitude, accuracy, jitter)
-su -c "/data/adb/modules/ksu_fakegps/scripts/gps_control.sh set 35.6895 139.6917 40.0 5.0 true"
-
-# Stop spoofing and restore real GPS
+# Stop simulation and restore genuine hardware GPS
 su -c "/data/adb/modules/ksu_fakegps/scripts/gps_control.sh stop"
 ```
 
 ---
 
-## For Ultra-Strict Apps (Banking / Anti-Cheat)
+## Responsible Use & Legal Disclaimer
 
-Most apps only verify:
-1. `Settings.Global.DEVELOPMENT_SETTINGS_ENABLED == 0` (Bypassed: remains 0).
-2. `Settings.Secure.MOCK_LOCATION == 0` (Bypassed: remains 0).
-3. Known mock GPS app package installed (Bypassed: no third-party mock app APK needed).
+> [!IMPORTANT]
+> This software is designed and distributed strictly for **software development, application quality assurance (QA), academic research, and personal privacy protection**.
+>
+> - **Compliance with Terms:** You agree to use this software in compliance with all applicable local laws, regulations, and the Terms of Service of any third-party applications.
+> - **Anti-Fraud & Fair Play:** This tool is **not** intended to bypass security protections, commit financial or rideshare fraud, spoof attendance systems, or gain unauthorized advantages in online games. The authors do not condone, support, or take responsibility for any unauthorized or illicit use of this software.
+> - **As-Is Warranty:** Provided under the MIT License on an "AS IS" basis without warranties of any kind. Use responsibly on your own devices.
 
-If you are dealing with games or banking apps that also perform bytecode inspection on `Location.isFromMockProvider()`:
-- The active coordinates are continuously synced to `/data/adb/ksu_fakegps/config.json`.
-- You can combine this module with LSPosed + `HideMockLocation` or Zygisk hooks to intercept and force `isFromMockProvider()` to return `false` on a per-app basis.
+---
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
+Open source map data &copy; [OpenStreetMap contributors](https://www.openstreetmap.org/copyright), Esri, and Leaflet.js.

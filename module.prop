@@ -1,6 +1,6 @@
 id=ksu_fakegps
-name=KernelSU Mock GPS (WebUI)
+name=KSU Location Sandbox (WebUI)
 version=v1.0.0
 versionCode=1000
-author=Silxcode
-description=System-level GPS location spoofer with WebUI control panel. Injects via root location providers without Developer Options mock location toggle.
+author=Antigravity
+description=Developer-oriented geolocation testing and privacy simulation suite with embedded WebUI. Operates via system test providers without toggling Developer Options.
