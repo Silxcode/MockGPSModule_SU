@@ -91,8 +91,8 @@ cmd_start() {
     # Ensure executable permission
     chmod 0755 "$SCRIPT_DIR/gps_daemon.sh"
 
-    # Launch daemon in background detached
-    nohup "$SCRIPT_DIR/gps_daemon.sh" >/dev/null 2>&1 &
+    # Launch daemon in background detached with explicit decoupling
+    ( trap '' HUP; "$SCRIPT_DIR/gps_daemon.sh" </dev/null >/dev/null 2>&1 ) &
     DAEMON_PID=$!
 
     sleep 0.5
@@ -121,6 +121,10 @@ cmd_stop() {
         cmd location providers set-test-provider-enabled "$p" false 2>/dev/null
         cmd location providers remove-test-provider "$p" 2>/dev/null
     done
+
+    # Restore default scanning settings
+    settings put global wifi_scan_always_enabled 1 2>/dev/null
+    settings put global ble_scan_always_enabled 1 2>/dev/null
 
     rm -f "$PID_FILE"
     echo '{"active":false,"pid":0,"last_tick":0}' > "$STATUS_FILE"

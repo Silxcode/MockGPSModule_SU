@@ -13,30 +13,55 @@ mkdir -p "$CONFIG_DIR"
 echo "$$" > "$PID_FILE"
 
 PROVIDERS="gps network fused"
+LOG_FILE="$CONFIG_DIR/daemon.log"
 
 # Cleanup function when daemon stops
 cleanup() {
-    echo "[$(date)] Stopping daemon and removing mock providers..."
+    echo "[$(date)] Stopping daemon and removing mock providers..." >> "$LOG_FILE"
     for p in $PROVIDERS; do
-        cmd location providers set-test-provider-enabled "$p" false 2>/dev/null
-        cmd location providers remove-test-provider "$p" 2>/dev/null
+        cmd location providers set-test-provider-enabled "$p" false 2>> "$LOG_FILE"
+        cmd location providers remove-test-provider "$p" 2>> "$LOG_FILE"
     done
     rm -f "$PID_FILE"
     echo '{"active":false,"pid":0,"last_tick":0}' > "$STATUS_FILE"
     exit 0
 }
 
-trap cleanup SIGTERM SIGINT SIGHUP EXIT
+# Ignore SIGHUP so parent shell disconnect doesn't kill daemon
+trap '' SIGHUP
+# Clean exit on SIGTERM and SIGINT
+trap cleanup SIGTERM SIGINT
 
-# Pre-grant mock location capability to system shell
+# Pre-grant mock location capability to system shell across users
 appops set 2000 android:mock_location allow 2>/dev/null
+appops set 0 android:mock_location allow 2>/dev/null
 appops set com.android.shell android:mock_location allow 2>/dev/null
+appops set --user 0 2000 android:mock_location allow 2>/dev/null
+appops set --user 0 com.android.shell android:mock_location allow 2>/dev/null
 
-# Register test providers
+# Ensure system location is enabled
+cmd location set-location-enabled true 2>/dev/null
+
+# Suppress Wi-Fi and Bluetooth scanning to prevent Google Location Accuracy from overriding GPS
+settings put global wifi_scan_always_enabled 0 2>/dev/null
+settings put global ble_scan_always_enabled 0 2>/dev/null
+content insert --uri content://com.google.settings/partner --bind name:s:network_location_opt_in --bind value:s:0 2>/dev/null
+
+echo "[$(date)] Registering test providers..." > "$LOG_FILE"
+
+# Clean and register test providers with full capabilities
 for p in $PROVIDERS; do
-    cmd location providers add-test-provider "$p" 2>/dev/null
-    cmd location providers set-test-provider-enabled "$p" true 2>/dev/null
+    cmd location providers remove-test-provider "$p" 2>/dev/null
+    cmd location providers add-test-provider "$p" --requiresNetwork --requiresSatellite --supportsAltitude --supportsSpeed --supportsBearing 2>> "$LOG_FILE"
+    # Fallback to basic if flags rejected
+    if [ $? -ne 0 ]; then
+        cmd location providers add-test-provider "$p" 2>> "$LOG_FILE"
+    fi
+    cmd location providers set-test-provider-enabled "$p" true 2>> "$LOG_FILE"
 done
+
+# Kill Google Maps so it clears in-memory cached location
+am force-stop com.google.android.apps.maps 2>/dev/null
 
 # Helper function to extract json values
 get_json_val() {
@@ -95,9 +120,14 @@ $(awk -v r1="$r1" -v r2="$r2" -v lat="$BASE_LAT" -v lng="$BASE_LNG" -v acc="$ACC
 EOF
     fi
 
+    TICK_COUNT=$((TICK_COUNT + 1))
+    if [ $((TICK_COUNT % 10)) -eq 1 ]; then
+        echo "[$(date)] Injected coords: ${TARGET_LAT},${TARGET_LNG} (acc: ${TARGET_ACC}m)" >> "$LOG_FILE"
+    fi
+
     # Inject into providers
     for p in $PROVIDERS; do
-        cmd location providers set-test-provider-location "$p" --location "${TARGET_LAT},${TARGET_LNG}" --accuracy "${TARGET_ACC}" 2>/dev/null
+        cmd location providers set-test-provider-location "$p" --location "${TARGET_LAT},${TARGET_LNG}" --accuracy "${TARGET_ACC}" 2>> "$LOG_FILE"
     done
 
     # Write live status
