@@ -118,11 +118,11 @@ while true; do
     TARGET_ACC="$ACCURACY"
 
     # Micro-jitter: simulate authentic GNSS atmospheric drift (±1.5 meters)
-    # Using separate awk call + field extraction — compatible with Android mksh
+    # Using separate awk call with explicit LC_ALL=C — avoids comma decimal crash on global locales
     if [ "$JITTER" = "true" ]; then
-        r1=$(( (RANDOM % 31) - 15 ))
-        r2=$(( (RANDOM % 31) - 15 ))
-        JITTER_OUT=$(awk -v r1="$r1" -v r2="$r2" \
+        r1=$(( (${RANDOM:-0} % 31) - 15 ))
+        r2=$(( (${RANDOM:-0} % 31) - 15 ))
+        JITTER_OUT=$(LC_ALL=C awk -v r1="$r1" -v r2="$r2" \
             -v lat="$BASE_LAT" -v lng="$BASE_LNG" -v acc="$ACCURACY" \
             'BEGIN {
                 d_lat = r1 * 0.0000012;
@@ -148,12 +148,21 @@ while true; do
         echo "[$(date)] Injected coords: ${TARGET_LAT},${TARGET_LNG} (acc: ${TARGET_ACC}m)" >> "$LOG_FILE"
     fi
 
-    # Re-register providers every 60 ticks in case GMS evicted them
+    # Log rotation: prevent unbounded growth on /data partition (cap at 200KB)
+    if [ $((TICK_COUNT % 120)) -eq 0 ] && [ -f "$LOG_FILE" ]; then
+        LOG_SIZE=$(wc -c < "$LOG_FILE" 2>/dev/null || echo 0)
+        if [ "$LOG_SIZE" -gt 204800 ]; then
+            tail -n 200 "$LOG_FILE" > "$LOG_FILE.tmp" 2>/dev/null && mv -f "$LOG_FILE.tmp" "$LOG_FILE"
+        fi
+    fi
+
+    # Re-register providers every 60 ticks in case GMS or LocationManager evicted them
     if [ $((TICK_COUNT % 60)) -eq 0 ]; then
         for p in $PROVIDERS; do
+            cmd location providers add-test-provider "$p" 2>/dev/null
             cmd location providers set-test-provider-enabled "$p" true 2>/dev/null
         done
-        echo "[$(date)] Provider keepalive tick" >> "$LOG_FILE"
+        echo "[$(date)] Provider keepalive tick (re-registered test providers)" >> "$LOG_FILE"
     fi
 
     # Inject into providers
@@ -161,20 +170,20 @@ while true; do
         cmd location providers set-test-provider-location "$p" --location "${TARGET_LAT},${TARGET_LNG}" --accuracy "${TARGET_ACC}" 2>> "$LOG_FILE"
     done
 
-    # Write live status
+    # Write live status atomically with safe defaults (never emits malformed JSON)
     cat << EOF > "$STATUS_FILE.tmp"
 {
   "active": true,
   "pid": $$,
-  "latitude": $TARGET_LAT,
-  "longitude": $TARGET_LNG,
-  "accuracy": $TARGET_ACC,
-  "altitude": $ALTITUDE,
-  "jitter": $JITTER,
+  "latitude": ${TARGET_LAT:-35.6895},
+  "longitude": ${TARGET_LNG:-139.6917},
+  "accuracy": ${TARGET_ACC:-5.0},
+  "altitude": ${ALTITUDE:-40.0},
+  "jitter": ${JITTER:-true},
   "last_tick": $(date +%s)
 }
 EOF
-    mv "$STATUS_FILE.tmp" "$STATUS_FILE"
+    mv -f "$STATUS_FILE.tmp" "$STATUS_FILE"
 
     sleep "$INTERVAL"
 done

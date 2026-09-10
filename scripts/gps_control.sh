@@ -10,11 +10,11 @@ CONFIG_FILE="$CONFIG_DIR/config.json"
 PID_FILE="$CONFIG_DIR/daemon.pid"
 STATUS_FILE="$CONFIG_DIR/status.json"
 
-mkdir -p "$CONFIG_DIR"
+mkdir -p "$CONFIG_DIR" 2>/dev/null
 
-# Ensure default config exists
-if [ ! -f "$CONFIG_FILE" ]; then
-    cat << 'EOF' > "$CONFIG_FILE"
+# Ensure default config exists if directory is writable
+if [ -d "$CONFIG_DIR" ] && [ ! -f "$CONFIG_FILE" ]; then
+    cat << 'EOF' > "$CONFIG_FILE" 2>/dev/null
 {
   "enabled": false,
   "latitude": 35.6895,
@@ -32,7 +32,12 @@ is_daemon_running() {
     if [ -f "$PID_FILE" ]; then
         PID=$(cat "$PID_FILE" 2>/dev/null | tr -d ' \r\n')
         if [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null; then
-            return 0
+            # Verify process cmdline actually belongs to gps_daemon to avoid PID recycling collision
+            if grep -qa "gps_daemon" "/proc/$PID/cmdline" 2>/dev/null; then
+                return 0
+            fi
+            # Stale PID file matching an unrelated process — prune it
+            rm -f "$PID_FILE"
         fi
     fi
     return 1
@@ -42,7 +47,7 @@ update_json_val() {
     key="$1"
     new_val="$2"
     if [ -f "$CONFIG_FILE" ]; then
-        sed -i -E "s/\"$key\"[[:space:]]*:[[:space:]]*[^,}]+/\"$key\": $new_val/" "$CONFIG_FILE"
+        sed -E "s/\"$key\"[[:space:]]*:[[:space:]]*[^,}]+/\"$key\": $new_val/" "$CONFIG_FILE" > "$CONFIG_FILE.tmp" 2>/dev/null && mv -f "$CONFIG_FILE.tmp" "$CONFIG_FILE"
     fi
 }
 
@@ -112,16 +117,19 @@ cmd_stop() {
 
     if is_daemon_running; then
         PID=$(cat "$PID_FILE" 2>/dev/null | tr -d ' \r\n')
-        kill -TERM "$PID" 2>/dev/null
-        # Wait up to 2 seconds for clean cleanup
-        for i in 1 2 3 4; do
-            if ! kill -0 "$PID" 2>/dev/null; then
-                break
-            fi
-            sleep 0.5
-        done
-        # Force kill if still lingering
-        kill -9 "$PID" 2>/dev/null
+        # Only kill if the process is verified as gps_daemon
+        if grep -qa "gps_daemon" "/proc/$PID/cmdline" 2>/dev/null; then
+            kill -TERM "$PID" 2>/dev/null
+            # Wait up to 2 seconds for clean cleanup
+            for i in 1 2 3 4; do
+                if ! kill -0 "$PID" 2>/dev/null; then
+                    break
+                fi
+                sleep 0.5
+            done
+            # Force kill if still lingering
+            kill -9 "$PID" 2>/dev/null
+        fi
     fi
 
     # Ensure test providers are fully removed
@@ -152,11 +160,29 @@ cmd_set() {
         return 1
     fi
 
-    update_json_val "latitude" "$LAT"
-    update_json_val "longitude" "$LNG"
-    update_json_val "altitude" "$ALT"
-    update_json_val "accuracy" "$ACC"
-    update_json_val "jitter" "$JIT"
+    # Read current persist and enabled state
+    CUR_ENABLED="true"
+    CUR_PERSIST="false"
+    if [ -f "$CONFIG_FILE" ]; then
+        grep -q '"enabled"[[:space:]]*:[[:space:]]*false' "$CONFIG_FILE" 2>/dev/null && CUR_ENABLED="false"
+        grep -q '"boot_persist"[[:space:]]*:[[:space:]]*true' "$CONFIG_FILE" 2>/dev/null && CUR_PERSIST="true"
+    fi
+
+    # Single-pass atomic write (avoids flash wear and TOCTOU daemon read race)
+    cat << EOF > "$CONFIG_FILE.tmp"
+{
+  "enabled": $CUR_ENABLED,
+  "latitude": $LAT,
+  "longitude": $LNG,
+  "altitude": $ALT,
+  "accuracy": $ACC,
+  "jitter": $JIT,
+  "interval": 1.0,
+  "boot_persist": $CUR_PERSIST
+}
+EOF
+    chmod 0644 "$CONFIG_FILE.tmp"
+    mv -f "$CONFIG_FILE.tmp" "$CONFIG_FILE"
 
     echo "{\"success\":true,\"latitude\":$LAT,\"longitude\":$LNG}"
 }
@@ -164,8 +190,9 @@ cmd_set() {
 cmd_save_config() {
     PAYLOAD="$1"
     if [ -n "$PAYLOAD" ]; then
-        echo "$PAYLOAD" > "$CONFIG_FILE"
-        chmod 0644 "$CONFIG_FILE"
+        echo "$PAYLOAD" > "$CONFIG_FILE.tmp"
+        chmod 0644 "$CONFIG_FILE.tmp"
+        mv -f "$CONFIG_FILE.tmp" "$CONFIG_FILE"
         echo "{\"success\":true,\"message\":\"Config updated\"}"
     else
         echo "{\"error\":\"No config payload provided\"}"

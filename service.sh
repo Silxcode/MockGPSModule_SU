@@ -28,6 +28,10 @@ CONFIG_FILE="$CONFIG_DIR/config.json"
     # Allow LocationManagerService and core framework to stabilize
     sleep 6
 
+    # Clean up stale PID and status from previous boot
+    rm -f "$CONFIG_DIR/daemon.pid"
+    echo '{"active":false,"pid":0,"last_tick":0}' > "$CONFIG_DIR/status.json"
+
     # Only start if explicitly configured for boot persistence
     if [ -f "$CONFIG_FILE" ]; then
         BOOT_PERSIST=$(grep '"boot_persist"[[:space:]]*:[[:space:]]*true' "$CONFIG_FILE" 2>/dev/null)

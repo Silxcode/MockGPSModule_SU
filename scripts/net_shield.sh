@@ -41,26 +41,44 @@ get_vpn_status() {
 
 # ─────────────────────────────────────────────
 # IP geolocation via root shell (avoids WebView CORS issues)
-# Uses wget or curl — at least one is available on most ROMs
+# Uses curl or toybox wget (HTTP fallback for TLS-less toybox)
 # ─────────────────────────────────────────────
 cmd_ip_check() {
-    URL="https://ip-api.com/json/?fields=status,country,countryCode,city,query"
+    URL_HTTP="http://ip-api.com/json/?fields=status,country,countryCode,city,query"
+    URL_HTTPS="https://ip-api.com/json/?fields=status,country,countryCode,city,query"
     RESULT=""
 
-    # Try wget first (usually available in busybox/toybox)
-    if command -v wget >/dev/null 2>&1; then
-        RESULT=$(wget -qO- --timeout=6 "$URL" 2>/dev/null)
+    # Try curl first with HTTPS if available
+    if command -v curl >/dev/null 2>&1; then
+        RESULT=$(curl -sf --max-time 6 "$URL_HTTPS" 2>/dev/null || curl -sf --max-time 6 "$URL_HTTP" 2>/dev/null)
     fi
 
-    # Fall back to curl
-    if [ -z "$RESULT" ] && command -v curl >/dev/null 2>&1; then
-        RESULT=$(curl -sf --max-time 6 "$URL" 2>/dev/null)
+    # Fall back to wget (toybox wget on stock Android works over HTTP port 80 without SSL errors)
+    if [ -z "$RESULT" ] && command -v wget >/dev/null 2>&1; then
+        RESULT=$(wget -qO- --timeout=6 "$URL_HTTP" 2>/dev/null)
     fi
 
     if [ -n "$RESULT" ]; then
         echo "$RESULT"
     else
         printf '{"status":"fail","error":"no_network_tool"}'
+    fi
+}
+
+# ─────────────────────────────────────────────
+# Chain management helper (prevents rule leaks and duplication)
+# ─────────────────────────────────────────────
+setup_chains() {
+    iptables -N KSU_SHIELD 2>/dev/null
+    if ! iptables -C OUTPUT -j KSU_SHIELD 2>/dev/null; then
+        iptables -I OUTPUT 1 -j KSU_SHIELD 2>/dev/null
+    fi
+
+    if command -v ip6tables >/dev/null 2>&1; then
+        ip6tables -N KSU_SHIELD 2>/dev/null
+        if ! ip6tables -C OUTPUT -j KSU_SHIELD 2>/dev/null; then
+            ip6tables -I OUTPUT 1 -j KSU_SHIELD 2>/dev/null
+        fi
     fi
 }
 
@@ -76,20 +94,36 @@ shield_on() {
     fi
     log "GMS UID resolved: $GMS_UID"
 
+    setup_chains
+
+    # Flush existing rules in KSU_SHIELD to avoid any duplication
+    iptables -F KSU_SHIELD 2>/dev/null
+    if command -v ip6tables >/dev/null 2>&1; then
+        ip6tables -F KSU_SHIELD 2>/dev/null
+    fi
+
     # Test whether xt_owner module is available before trying to use it
     IPTABLES_OWNER_OK=false
-    if iptables -I OUTPUT 1 -m owner --uid-owner "$GMS_UID" -d 127.0.0.2 -j DROP 2>/dev/null; then
-        iptables -D OUTPUT -m owner --uid-owner "$GMS_UID" -d 127.0.0.2 -j DROP 2>/dev/null
+    if iptables -A KSU_SHIELD -m owner --uid-owner "$GMS_UID" -d 127.0.0.2 -j DROP 2>/dev/null; then
+        iptables -F KSU_SHIELD 2>/dev/null
         IPTABLES_OWNER_OK=true
     fi
 
     if [ "$IPTABLES_OWNER_OK" = "true" ]; then
-        # Block GMS UID outbound to Google geolocation IP ranges
+        # Block GMS UID outbound to Google geolocation IPv4 ranges
         for range in 142.250.0.0/15 216.58.0.0/16 74.125.0.0/16 108.177.0.0/17; do
-            iptables -I OUTPUT 1 -m owner --uid-owner "$GMS_UID" -d "$range" -j DROP 2>/dev/null \
+            iptables -A KSU_SHIELD -m owner --uid-owner "$GMS_UID" -d "$range" -j DROP 2>/dev/null \
                 && log "Blocked GMS uid=$GMS_UID -> $range"
         done
-        log "iptables GMS geoloc shield active"
+
+        # Block GMS UID outbound to Google geolocation IPv6 ranges
+        if command -v ip6tables >/dev/null 2>&1; then
+            for range6 in 2607:f8b0::/32 2001:4860::/32; do
+                ip6tables -A KSU_SHIELD -m owner --uid-owner "$GMS_UID" -d "$range6" -j DROP 2>/dev/null \
+                    && log "Blocked GMS uid=$GMS_UID IPv6 -> $range6"
+            done
+        fi
+        log "iptables/ip6tables GMS geoloc shield active"
     else
         log "xt_owner module not available — using settings-only shield"
     fi
@@ -97,7 +131,6 @@ shield_on() {
     # Settings-based suppression (always apply, belt + suspenders)
     settings put global wifi_scan_always_enabled 0 2>/dev/null
     settings put global ble_scan_always_enabled 0 2>/dev/null
-    settings put secure location_mode 3 2>/dev/null
     content insert --uri content://com.google.settings/partner \
         --bind name:s:network_location_opt_in --bind value:s:0 2>/dev/null || true
     content insert --uri content://com.google.settings/partner \
@@ -112,18 +145,16 @@ shield_on() {
 # Remove network shield
 # ─────────────────────────────────────────────
 shield_off() {
-    GMS_UID=$(get_gms_uid)
-    if [ -n "$GMS_UID" ]; then
-        for range in 142.250.0.0/15 216.58.0.0/16 74.125.0.0/16 108.177.0.0/17; do
-            iptables -D OUTPUT -m owner --uid-owner "$GMS_UID" -d "$range" -j DROP 2>/dev/null || true
-        done
-        log "iptables rules removed for uid=$GMS_UID"
+    # Atomically flush custom chains (leaves zero residual rules, cannot leak)
+    iptables -F KSU_SHIELD 2>/dev/null || true
+    if command -v ip6tables >/dev/null 2>&1; then
+        ip6tables -F KSU_SHIELD 2>/dev/null || true
     fi
 
     settings put global wifi_scan_always_enabled 1 2>/dev/null
     settings put global ble_scan_always_enabled 1 2>/dev/null
 
-    log "Network shield disabled"
+    log "Network shield disabled (KSU_SHIELD flushed)"
     printf '{"shield":"off","status":"restored"}'
     return 0
 }
@@ -136,10 +167,10 @@ cmd_status() {
     VPN_JSON=$(get_vpn_status)
     SHIELD_ACTIVE="false"
 
-    if [ -n "$GMS_UID" ]; then
-        if iptables -L OUTPUT -n 2>/dev/null | grep -q "uid-owner $GMS_UID"; then
-            SHIELD_ACTIVE="true"
-        fi
+    if iptables -L KSU_SHIELD -n 2>/dev/null | grep -q "DROP"; then
+        SHIELD_ACTIVE="true"
+    elif [ -n "$GMS_UID" ] && iptables -L OUTPUT -n 2>/dev/null | grep -q "uid-owner $GMS_UID"; then
+        SHIELD_ACTIVE="true"
     fi
 
     WIFI_SCAN=$(settings get global wifi_scan_always_enabled 2>/dev/null | tr -d ' \r\n')

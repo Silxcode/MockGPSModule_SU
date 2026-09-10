@@ -284,9 +284,30 @@
   /* Coordinates & State Synchronization                                        */
   /* -------------------------------------------------------------------------- */
 
+  function sanitizeNumber(val, fallback, min = -Infinity, max = Infinity) {
+    const num = parseFloat(val);
+    if (!Number.isFinite(num)) return fallback;
+    return Math.max(min, Math.min(max, num));
+  }
+
+  function safeParseJson(str) {
+    if (!str || typeof str !== 'string') return null;
+    try {
+      return JSON.parse(str);
+    } catch (_) {}
+    const firstBrace = str.indexOf('{');
+    const lastBrace = str.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace > firstBrace) {
+      try {
+        return JSON.parse(str.substring(firstBrace, lastBrace + 1));
+      } catch (_) {}
+    }
+    return null;
+  }
+
   function updateCoordinates(lat, lng, syncDaemon = false) {
-    state.lat = parseFloat(lat.toFixed(7));
-    state.lng = parseFloat(lng.toFixed(7));
+    state.lat = parseFloat(sanitizeNumber(lat, DEFAULT_LAT, -90, 90).toFixed(7));
+    state.lng = parseFloat(sanitizeNumber(lng, DEFAULT_LNG, -180, 180).toFixed(7));
 
     // Update marker position if it differs
     if (targetMarker) {
@@ -312,9 +333,15 @@
   function debounceSyncToDaemon() {
     clearTimeout(state.updateDebounceTimer);
     state.updateDebounceTimer = setTimeout(async () => {
-      const cmd = `sh ${MODULE_SCRIPT_PATH} set ${state.lat} ${state.lng} ${state.altitude} ${state.accuracy} ${state.jitter}`;
+      const safeLat = sanitizeNumber(state.lat, DEFAULT_LAT, -90, 90).toFixed(7);
+      const safeLng = sanitizeNumber(state.lng, DEFAULT_LNG, -180, 180).toFixed(7);
+      const safeAlt = sanitizeNumber(state.altitude, 40.0, -500, 9000).toFixed(1);
+      const safeAcc = sanitizeNumber(state.accuracy, 5.0, 1, 100).toFixed(1);
+      const safeJit = state.jitter ? 'true' : 'false';
+
+      const cmd = `sh ${MODULE_SCRIPT_PATH} set ${safeLat} ${safeLng} ${safeAlt} ${safeAcc} ${safeJit}`;
       await execCmd(cmd);
-      showToast(`Coordinates updated: ${state.lat.toFixed(4)}, ${state.lng.toFixed(4)}`);
+      showToast(`Coordinates updated: ${safeLat}, ${safeLng}`);
     }, 300);
   }
 
@@ -378,13 +405,13 @@
         // 1. Update config values
         const configJson = JSON.stringify({
           enabled: true,
-          latitude: state.lat,
-          longitude: state.lng,
-          altitude: state.altitude,
-          accuracy: state.accuracy,
-          jitter: state.jitter,
+          latitude: sanitizeNumber(state.lat, DEFAULT_LAT, -90, 90),
+          longitude: sanitizeNumber(state.lng, DEFAULT_LNG, -180, 180),
+          altitude: sanitizeNumber(state.altitude, 40.0, -500, 9000),
+          accuracy: sanitizeNumber(state.accuracy, 5.0, 1, 100),
+          jitter: !!state.jitter,
           interval: 1.0,
-          boot_persist: state.bootPersist
+          boot_persist: !!state.bootPersist
         });
         await execCmd(`sh ${MODULE_SCRIPT_PATH} save-config '${configJson}'`);
         
@@ -400,7 +427,7 @@
     // Inputs Change (Lat / Lng)
     el.inputLat.addEventListener('change', () => {
       const val = parseFloat(el.inputLat.value);
-      if (!isNaN(val) && val >= -90 && val <= 90) {
+      if (Number.isFinite(val) && val >= -90 && val <= 90) {
         updateCoordinates(val, state.lng, true);
         map.panTo([state.lat, state.lng]);
       }
@@ -408,7 +435,7 @@
 
     el.inputLng.addEventListener('change', () => {
       const val = parseFloat(el.inputLng.value);
-      if (!isNaN(val) && val >= -180 && val <= 180) {
+      if (Number.isFinite(val) && val >= -180 && val <= 180) {
         updateCoordinates(state.lat, val, true);
         map.panTo([state.lat, state.lng]);
       }
@@ -416,12 +443,14 @@
 
     // Accuracy & Altitude
     el.inputAccuracy.addEventListener('change', () => {
-      state.accuracy = parseFloat(el.inputAccuracy.value) || 5.0;
+      state.accuracy = sanitizeNumber(el.inputAccuracy.value, 5.0, 1, 100);
+      el.inputAccuracy.value = state.accuracy;
       if (state.isActive) debounceSyncToDaemon();
     });
 
     el.inputAltitude.addEventListener('change', () => {
-      state.altitude = parseFloat(el.inputAltitude.value) || 40.0;
+      state.altitude = sanitizeNumber(el.inputAltitude.value, 40.0, -500, 9000);
+      el.inputAltitude.value = state.altitude;
       if (state.isActive) debounceSyncToDaemon();
     });
 
@@ -435,14 +464,14 @@
     el.switchPersist.addEventListener('change', async () => {
       state.bootPersist = el.switchPersist.checked;
       const configJson = JSON.stringify({
-        enabled: state.isActive,
-        latitude: state.lat,
-        longitude: state.lng,
-        altitude: state.altitude,
-        accuracy: state.accuracy,
-        jitter: state.jitter,
+        enabled: !!state.isActive,
+        latitude: sanitizeNumber(state.lat, DEFAULT_LAT, -90, 90),
+        longitude: sanitizeNumber(state.lng, DEFAULT_LNG, -180, 180),
+        altitude: sanitizeNumber(state.altitude, 40.0, -500, 9000),
+        accuracy: sanitizeNumber(state.accuracy, 5.0, 1, 100),
+        jitter: !!state.jitter,
         interval: 1.0,
-        boot_persist: state.bootPersist
+        boot_persist: !!state.bootPersist
       });
       await execCmd(`sh ${MODULE_SCRIPT_PATH} save-config '${configJson}'`);
       showToast(state.bootPersist ? "Will persist after boot" : "Boot persistence disabled");
@@ -576,7 +605,10 @@
   // Known country codes per region — bounding boxes for GPS-to-country matching
   const COUNTRY_BY_PRESET = [
     ['JP', [30, 46], [129, 146]],
-    ['US', [24, 50], [-125, -65]],
+    ['CA', [49, 84], [-141, -52]],
+    ['CA', [41.7, 49], [-95, -74]], // Southern Ontario & Quebec corridor
+    ['US', [24, 49], [-125, -66]],  // Contiguous US
+    ['US', [51, 72], [-179, -130]], // Alaska
     ['GB', [49, 60], [-8, 2]],
     ['FR', [42, 52], [-5, 8]],
     ['IN', [8, 37], [68, 97]],
@@ -588,7 +620,6 @@
     ['CN', [18, 54], [73, 136]],
     ['KR', [33, 43], [124, 132]],
     ['RU', [41, 82], [19, 180]],
-    ['CA', [41, 84], [-141, -52]],
     ['MX', [14, 33], [-118, -86]],
     ['IT', [36, 48], [6, 19]],
     ['ES', [36, 44], [-10, 5]],
@@ -658,7 +689,7 @@
       if (state.isKsuAvailable) {
         const res = await execCmd(`sh ${MODULE_SCRIPT_PATH} net-shield ip-check`);
         if (res && (res.errno == 0 || res.errno === 0) && res.stdout) {
-          const data = JSON.parse(res.stdout);
+          const data = safeParseJson(res.stdout);
           if (data && data.status === 'success') {
             showResult(data.query || '?', data.city || data.regionName, data.country, data.countryCode);
             ipCheckInProgress = false;
@@ -750,11 +781,17 @@
   /* Daemon Polling & Sync                                                      */
   /* -------------------------------------------------------------------------- */
 
+  let isStatusPolling = false;
+
   async function fetchDaemonStatus() {
+    if (isStatusPolling) return;
+    isStatusPolling = true;
+
     try {
       const res = await execCmd(`sh ${MODULE_SCRIPT_PATH} status`);
       if (res && res.stdout) {
-        const data = JSON.parse(res.stdout);
+        const data = safeParseJson(res.stdout);
+        if (!data) return;
         
         state.isActive = !!data.active;
         state.pid = data.pid || 0;
@@ -801,6 +838,8 @@
       }
     } catch (e) {
       console.warn("Status poll error:", e);
+    } finally {
+      isStatusPolling = false;
     }
   }
 
