@@ -1,258 +1,210 @@
-# KSU GPS Ghost — Mock GPS & Geolocation Suite
+# KSU GPS Ghost
 
-[![KernelSU Compatible](https://img.shields.io/badge/KernelSU--Next-Supported-brightgreen.svg)](https://github.com/rifsxd/KernelSU-Next)
-[![Android Version](https://img.shields.io/badge/Android-10%20→%2015-blue.svg)](https://developer.android.com/)
-[![Version](https://img.shields.io/badge/version-v1.0.3-cyan.svg)](https://github.com/Silxcode/MockGPSModule_SU/releases)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![KernelSU](https://img.shields.io/badge/KernelSU--Next-supported-brightgreen.svg)](https://github.com/rifsxd/KernelSU-Next)
+[![Android](https://img.shields.io/badge/Android-10--15-blue.svg)](https://developer.android.com/)
+[![Version](https://img.shields.io/badge/version-v1.0.3-informational.svg)](https://github.com/Silxcode/MockGPSModule_SU/releases)
+[![License](https://img.shields.io/badge/license-MIT-lightgrey.svg)](LICENSE)
 
-A developer-grade **Mock GPS** and geolocation simulation suite for **KernelSU**, **KernelSU-Next**, **APatch**, and **Magisk**.  
-Built with an on-device **WebUI** and a multi-layer **Network Fingerprint Shield** to suppress all major location signals.
+A root-level GPS spoofing module for KernelSU, KernelSU-Next, APatch, and Magisk. Operates via Android's system test provider interface — no Developer Options required, no third-party mock location app selection. Ships with an on-device WebUI and a network fingerprint shield that suppresses secondary location signals from reaching Google's servers.
 
 ---
 
-## What This Does
+## Background
 
-On modern Android, apps like Google Maps determine your location using **five independent signals**:
+Android does not determine location from GPS alone. A request to `FusedLocationProviderClient` is resolved using several independent signals:
 
-| Signal | Source | Bypassed? |
-|---|---|---|
-| GPS satellite | Hardware GNSS chip | ✅ Injected via `cmd location` root API |
-| Wi-Fi BSSID scanning | Nearby router MAC addresses | ✅ Suppressed automatically |
-| Bluetooth beacon scanning | BLE beacon triangulation | ✅ Suppressed automatically |
-| GMS network geolocation | Google's BSSID/IP database | ✅ Blocked via `iptables` (Network Shield) |
-| **IP geolocation** | Your public IP → country lookup | ⚠️ Requires a VPN (see below) |
+| Signal | Source |
+|---|---|
+| GPS satellite | GNSS hardware |
+| Wi-Fi BSSID scan | Router MAC addresses compared against Google's database |
+| Bluetooth beacons | BLE triangulation |
+| GMS network location | Google's Wi-Fi/IP geolocation API |
+| IP geolocation | Server-side lookup of your public IP |
 
-This module injects mock GPS coordinates at the **Android system level** using root — **without** enabling Developer Options or selecting a mock location app in settings.
+Standard mock location apps only override the GPS signal. The remaining signals continue to resolve your real position and are used to correct or override the injected coordinates. This module addresses all five.
+
+---
+
+## How It Works
+
+GPS injection happens through the Android `cmd location` interface, which allows a root process to register test providers and feed arbitrary coordinates directly into `LocationManagerService`. The daemon registers itself as `gps`, `network`, and `fused` providers simultaneously, broadcasts coordinates on a 1-second interval, and applies micro-jitter to simulate realistic atmospheric drift.
+
+The network shield runs alongside the daemon and applies `iptables DROP` rules scoped to the `com.google.android.gms` UID, targeting Google's geolocation IP ranges. This prevents GMS from resolving Wi-Fi BSSID data against Google's location database while leaving authentication, Play Store, and push notifications functional. Wi-Fi and Bluetooth background scanning are suppressed via Android settings. All rules are removed when the daemon stops.
+
+The WebUI runs inside KernelSU Manager's sandboxed WebView and communicates with the shell layer through the `ksu.exec()` bridge.
 
 ---
 
 ## Features
 
-- **Root-Level GPS Injection:** Injects coordinates directly into `LocationManagerService` via `cmd location providers`. The system setting `development_settings_enabled` stays `0`.
-- **On-Device WebUI:** Tap the module in KernelSU Manager to open a full interactive map (Leaflet.js, offline-capable, no API keys).
-- **24 City Presets:** One-tap teleport to Tokyo, New York, London, Paris, Dubai, Singapore, and more.
-- **Draggable Pin + Search:** Drag the map pin or search any address to set coordinates.
-- **Three Map Layers (No Watermarks):** Dark Canvas (Esri), Google Satellite/Hybrid, OpenStreetMap.
-- **Atmospheric Jitter Engine:** Simulates authentic GNSS drift (±1.5m) to defeat static-coordinate anti-cheat checks.
-- **Network Fingerprint Shield (v1.0.3):** Automatically applies `iptables` rules that block GMS from sending your Wi-Fi BSSIDs to Google's geolocation servers.
-- **Live IP Check Panel (v1.0.3):** WebUI fetches your public IP and detected country, then shows a ✅ / ⚠️ match indicator against your spoofed GPS location.
-- **VPN Detector:** Auto-detects active `tun0`/`wg0`/`ppp0` tunnel interfaces and shows them in the WebUI.
-- **Boot Persistence:** Optional auto-start with saved coordinates on reboot.
-- **Bootloop-Safe:** Zero `/system` modifications. Zero early-boot scripts. Late-boot only with 60s watchdog timeout.
+- Root-level injection into `gps`, `network`, and `fused` providers with no Developer Options changes
+- On-device WebUI with Leaflet.js map — drag pin or search by address
+- 24 city presets
+- Three tile layers: dark canvas (Esri), satellite/hybrid, OpenStreetMap — all offline-capable
+- Configurable accuracy, altitude, and update interval
+- Micro-jitter engine for realistic coordinate drift
+- `iptables` network shield scoped to the GMS UID
+- Live IP geolocation check in WebUI with match indicator against spoofed GPS region
+- VPN/tunnel interface detection (`tun0`, `wg0`, `ppp0`)
+- Boot persistence option
+- Zero `/system` or `/vendor` partition modifications
 
 ---
 
-## Technical Architecture
+## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                  KernelSU WebUI (WebView)               │
-│   Leaflet Map · IP Check · Shield Toggle · Presets      │
-└────────────────────┬────────────────────────────────────┘
-                     │ ksu.exec() bridge
-                     ▼
-┌─────────────────────────────────────────────────────────┐
-│              gps_control.sh  (CLI controller)           │
-│  start · stop · set · status · save-config · net-shield │
-└──────┬───────────────────────────────┬──────────────────┘
-       │                               │
-       ▼                               ▼
-┌─────────────────┐         ┌──────────────────────┐
-│  gps_daemon.sh  │         │   net_shield.sh      │
-│  Root loop:     │         │  iptables DROP rules │
-│  injects coords │         │  GMS UID geoloc block│
-│  every 1 second │         │  VPN interface check │
-└────────┬────────┘         └──────────────────────┘
-         │  cmd location providers set-test-provider-location
-         ▼
-┌─────────────────────────────────────────────────────────┐
-│         Android LocationManagerService (system_server)  │
-│                 gps · network · fused                   │
-└─────────────────────────────────────────────────────────┘
+WebUI (KernelSU WebView)
+        |
+        |  ksu.exec() bridge
+        v
+gps_control.sh          -- state management, daemon lifecycle, CLI entry point
+        |
+        |-- gps_daemon.sh     -- root loop, injects coordinates every ~1s
+        |-- net_shield.sh     -- iptables rules, VPN detection, settings suppression
+        |
+        v
+Android LocationManagerService (system_server)
+        providers: gps / network / fused
 ```
 
 ---
 
 ## Installation
 
-### Requirements
-- Device rooted with **KernelSU** (v0.9.0+), **KernelSU-Next**, **APatch**, or **Magisk** (v20.4+)
-- Android 10 – 15 (tested on Evolution X Android 14, Kernel 4.14, KernelSU-Next v3.3.0)
-
-### Steps
-1. Download the latest `ksu_fakegps_vX.X.X.zip` from [**Releases**](https://github.com/Silxcode/MockGPSModule_SU/releases).
-2. Open **KernelSU Manager** → **Modules** → **Install from storage**.
-3. Select the `.zip` file and let it flash.
-4. **Reboot** your device.
-5. Return to **KernelSU Manager** → **Modules** → tap **KSU GPS Ghost** → **Open WebUI**.
-
----
-
-## Using the WebUI
-
-1. **Pick a city** from the scrollable preset flags row, or drag the map pin, or type an address in the search bar.
-2. Adjust **Accuracy** (meters) and **Altitude** to taste.
-3. Tap **START SPOOFING** — the badge turns green **ACTIVE**.
-4. Open **Google Maps** (swipe it away from Recent Apps first if it was already open) and tap the locate button. The blue dot will jump to your spoofed location.
-5. Tap **STOP SPOOFING** to restore real hardware GPS.
-
----
-
-## IP Check & Network Shield
-
-### The Problem
-Even with perfect GPS spoofing, Google Maps and most apps verify location using **IP geolocation**. If your IP says you're in India but your GPS says Tokyo, Google detects the mismatch and overrides or ignores the GPS signal.
-
-### What the Network Shield Does (automatic when you press START)
-- Resolves the UID of `com.google.android.gms` from `/data/system/packages.list`
-- Applies `iptables DROP` rules for Google's geolocation IP ranges (`142.250.0.0/15`, `216.58.0.0/16`, `74.125.0.0/16`) **only for the GMS UID** — so Play Store, authentication, and notifications are unaffected
-- Suppresses Wi-Fi scanning (`wifi_scan_always_enabled 0`) and BLE scanning (`ble_scan_always_enabled 0`)
-- Opts out of Google Network Location via the `com.google.settings` content provider
-- Force-stops Google Maps to clear its in-memory location cache
-- All rules are cleanly removed when you tap STOP SPOOFING
-
-### Checking IP Match in the WebUI
-Open the **"IP & Network Fingerprint Shield"** panel in the WebUI:
-
-| Row | What it shows |
-|---|---|
-| Your Public IP | Your real outgoing IP address |
-| IP-Geolocated City | City/country Google sees from your IP |
-| IP vs GPS Match | ✅ Match or ⚠️ MISMATCH with reason |
-| GMS Network Shield | Whether iptables rules are active |
-| VPN / Tunnel Active | Detected `tun0`, `wg0`, etc. interface |
-| Wi-Fi Scanning | Whether Android's always-on Wi-Fi scan is suppressed |
-
-### Achieving Full IP Bypass — Use a VPN
-
-The Network Shield prevents GMS from **resolving** your Wi-Fi/cell location, but it cannot change your **actual public IP address**. For complete location consistency, connect a VPN to a server near your spoofed GPS city:
-
-| VPN | Notes |
-|---|---|
-| **[Mullvad VPN](https://mullvad.net)** | Best privacy, anonymous accounts, €5/month, WireGuard |
-| **[ProtonVPN Free](https://protonvpn.com)** | Free tier (US/NL/JP), no logs, fast |
-| **[Windscribe Free](https://windscribe.com)** | 10 GB/month free, many server locations |
+**Requirements:**
+- KernelSU v0.9.0+, KernelSU-Next, APatch, or Magisk v20.4+
+- Android 10 through 15
+- Tested on Evolution X 14 (K20 Pro / Raphael, kernel 4.14, KernelSU-Next)
 
 **Steps:**
-1. Install Mullvad or ProtonVPN from the Play Store.
-2. Select a server in the **same country** as your spoofed GPS location.
-3. Connect the VPN, then start spoofing.
-4. The WebUI **IP Check panel** will show ✅ when both signals match.
+1. Download `ksu_fakegps_vX.X.X.zip` from [Releases](https://github.com/Silxcode/MockGPSModule_SU/releases).
+2. Open KernelSU Manager > Modules > Install from storage.
+3. Select the zip and reboot.
+4. After reboot: KernelSU Manager > Modules > tap the module > Open WebUI.
+
+---
+
+## Usage
+
+### WebUI
+
+1. Select a preset city, drag the map pin, or search an address.
+2. Adjust accuracy and altitude if needed.
+3. Press **Start**. The status badge turns green.
+4. Force-close any app you want to test (swipe from Recents), then reopen it.
+5. Press **Stop** to restore real GPS and remove all injected rules.
+
+### CLI
+
+All operations are also available via root shell:
+
+```bash
+# Status JSON — daemon state, VPN, shield, live coordinates
+su -c "/data/adb/modules/ksu_fakegps/scripts/gps_control.sh status"
+
+# Set coordinates before starting
+su -c "/data/adb/modules/ksu_fakegps/scripts/gps_control.sh set 37.7749 -122.4194 15.0 4.5 true"
+
+# Start / stop daemon
+su -c "/data/adb/modules/ksu_fakegps/scripts/gps_control.sh start"
+su -c "/data/adb/modules/ksu_fakegps/scripts/gps_control.sh stop"
+
+# Network shield — managed automatically, but can be toggled manually
+su -c "/data/adb/modules/ksu_fakegps/scripts/gps_control.sh net-shield on"
+su -c "/data/adb/modules/ksu_fakegps/scripts/gps_control.sh net-shield off"
+su -c "/data/adb/modules/ksu_fakegps/scripts/gps_control.sh net-shield status"
+su -c "/data/adb/modules/ksu_fakegps/scripts/gps_control.sh net-shield vpn"
+
+# View daemon log
+su -c "cat /data/adb/ksu_fakegps/daemon.log"
+
+# Verify the system server accepted injected coordinates
+su -c "dumpsys location | grep -A 8 'Last Known Locations'"
+```
+
+---
+
+## IP Geolocation Bypass
+
+The network shield blocks GMS from resolving your Wi-Fi BSSIDs against Google's location database. It does not change your public IP address. If your IP resolves to a different country than the spoofed GPS coordinates, apps may still detect the inconsistency.
+
+To fully close this gap, connect a VPN server in the same country as the spoofed GPS location before starting the daemon. After connecting, the WebUI IP panel will confirm both signals are consistent.
+
+VPN options that work reliably on Android with WireGuard or OpenVPN:
+
+- **Mullvad** — anonymous accounts (no email), WireGuard, servers in 40+ countries
+- **ProtonVPN** — free tier includes US, Netherlands, Japan; no logs
+- **Windscribe** — free tier with 10 GB/month across many locations
+
+The WebUI shows your current public IP, the city it resolves to, and whether it matches the spoofed GPS country. This check runs against `ip-api.com` on load and on demand via the Check IP button.
+
+---
+
+## Hiding the Mock Provider Flag
+
+Apps that call `location.isMock()` (API 31+) or `location.isFromMockProvider()` can detect that coordinates originate from a test provider even if the coordinates themselves are accurate. Suppressing this flag requires hooking the `android.location.Location` class at the Zygote level.
+
+On KernelSU-Next with a non-GKI kernel (e.g., 4.14 on Raphael):
+
+1. Flash **ZygiskNext** in KernelSU Manager to enable the Zygisk API.
+2. Flash **LSPosed** (Zygisk build) from the [LSPosed releases](https://github.com/LSPosed/LSPosed/releases).
+3. Reboot, then open LSPosed Manager.
+4. Install [**HideMockLocation**](https://github.com/auag0/HideMockLocation).
+5. In LSPosed: enable HideMockLocation and add System Framework and your target app to its scope.
+6. Reboot.
+
+Compatibility with non-GKI kernels varies by ROM. Check your device thread before assuming it works.
 
 ---
 
 ## Troubleshooting
 
-### Google Maps still shows real location after START SPOOFING
+**Google Maps is still showing real location:**
 
-1. **Swipe Google Maps away from Recent Apps** before checking. It caches location aggressively in RAM.
-2. Disable **Google Location Accuracy**: Settings → Location → Location Services → Google Location Accuracy → **OFF**.
-3. Disable **Wi-Fi scanning** and **Bluetooth scanning** in the same menu.
-4. Check the WebUI **IP Check panel** — if it shows ⚠️ MISMATCH, you need a VPN (see above).
+1. Force-close Google Maps from Recents before checking — it caches location heavily in memory.
+2. Disable Google Location Accuracy: Settings > Location > Location Services > Google Location Accuracy > Off.
+3. Disable Wi-Fi scanning and Bluetooth scanning in the same menu.
+4. Check the IP panel in the WebUI — if it shows a country mismatch, you need a VPN.
 
-### Coordinates are accepted but accuracy is poor
+**Coordinates injected but accuracy is rejected by the app:**
 
-Increase the **Accuracy** slider in the WebUI to a lower value (e.g. 3m). Some apps reject locations with accuracy > 50m.
+Lower the accuracy value (e.g. 3m). Some apps discard locations with accuracy > 20–50m.
 
-### Daemon log for debugging
+**Daemon exits immediately after start:**
 
-```bash
-su -c "cat /data/adb/ksu_fakegps/daemon.log"
-```
-
-To verify the system server accepted your injected coordinates:
-```bash
-su -c "dumpsys location | grep -A 8 'Last Known Locations'"
-```
-
-### Module not appearing in KernelSU
-
-On non-GKI legacy kernels (kernel 4.14, Metamodule = Not Installed), the module mounts correctly but the Metamodule status warning is cosmetic. The shell scripts run independently of the mount and work fine.
-
----
-
-## CLI / ADB Usage
-
-All operations are available via root shell for CI pipelines and headless testing:
-
-```bash
-# Full status (JSON) including daemon state, VPN, and network shield
-su -c "/data/adb/modules/ksu_fakegps/scripts/gps_control.sh status"
-
-# Set target coordinates
-su -c "/data/adb/modules/ksu_fakegps/scripts/gps_control.sh set 37.7749 -122.4194 15.0 4.5 true"
-
-# Start the GPS daemon
-su -c "/data/adb/modules/ksu_fakegps/scripts/gps_control.sh start"
-
-# Stop and restore real GPS
-su -c "/data/adb/modules/ksu_fakegps/scripts/gps_control.sh stop"
-
-# Toggle GMS network shield independently
-su -c "/data/adb/modules/ksu_fakegps/scripts/gps_control.sh net-shield on"
-su -c "/data/adb/modules/ksu_fakegps/scripts/gps_control.sh net-shield off"
-su -c "/data/adb/modules/ksu_fakegps/scripts/gps_control.sh net-shield status"
-
-# Check VPN / tunnel interface status
-su -c "/data/adb/modules/ksu_fakegps/scripts/gps_control.sh net-shield vpn"
-```
-
----
-
-## Advanced: Hiding `isFromMockProvider` Flag (LSPosed)
-
-Apps that call `location.isMock()` (Android 12+) or `location.isFromMockProvider()` can still detect that coordinates are from a test provider. To hide this flag completely, you need an Xposed hook:
-
-1. Flash **ZygiskNext** module in KernelSU Manager (enables Zygisk API without Magisk).
-2. Flash **LSPosed** (Zygisk edition) from the [LSPosed releases](https://github.com/LSPosed/LSPosed/releases).
-3. Reboot. Open **LSPosed Manager**.
-4. Install and enable [**HideMockLocation**](https://github.com/auag0/HideMockLocation) module.
-5. In LSPosed Manager → HideMockLocation → Scope → enable for **System Framework** and your target app (e.g. Google Maps).
-6. Reboot again.
-
-> **Note:** ZygiskNext on non-GKI kernels (like Qualcomm 4.14 on Raphael/K20 Pro) may have limited compatibility. Check your ROM thread for tested module combinations.
+Check the log: `su -c "cat /data/adb/ksu_fakegps/daemon.log"`. Common cause is a stale PID file from a previous crash. The control script cleans this up on stop, but if the device rebooted mid-session you may need to run stop once before start.
 
 ---
 
 ## Changelog
 
-### v1.0.3 — Network Fingerprint Shield
-- **New:** `scripts/net_shield.sh` — UID-targeted `iptables` rules blocking GMS geolocation signals
-- **New:** Live **IP geolocation check** in WebUI with country match indicator
-- **New:** VPN / tunnel interface detector in WebUI
-- **New:** `net-shield` sub-command in `gps_control.sh`
-- **Improved:** `gps_daemon.sh` now auto-enables shield on start and restores on stop
-- **Improved:** `am kill com.google.android.gms` to flush stale location cache on daemon start
+**v1.0.3**
+- Added `net_shield.sh` — iptables rules scoped to GMS UID, blocking Google geolocation IP ranges while preserving GMS functionality
+- Added IP geolocation check panel to WebUI
+- Added VPN/tunnel interface detector to WebUI
+- Added `net-shield` sub-command to `gps_control.sh`
+- Daemon now enables the shield on start and removes it on stop
+- Added `am kill com.google.android.gms` to flush GMS location cache on daemon start
 
-### v1.0.2 — Provider Fix & GLA Bypass
-- Fixed SIGHUP daemon termination (`trap '' SIGHUP`)
-- Added Google Location Accuracy suppression via settings + Google partner content provider
-- Added provider reset before re-registration (prevents stale test provider conflicts)
-- Added daemon logging to `/data/adb/ksu_fakegps/daemon.log`
-- Added Wi-Fi/BLE scanning suppression on start, restore on stop
-- Bumped provider registration flags (`--requiresNetwork --requiresSatellite --supportsAltitude --supportsSpeed --supportsBearing`)
+**v1.0.2**
+- Fixed daemon being killed on shell disconnect (SIGHUP immunity via `trap '' SIGHUP`)
+- Added Google Location Accuracy opt-out via `com.google.settings` content provider
+- Added Wi-Fi and BLE scanning suppression, restored on stop
+- Fixed stale test provider registration (remove before add)
+- Added coordinate logging to `/data/adb/ksu_fakegps/daemon.log`
+- Updated provider flags to include altitude, speed, bearing support
 
-### v1.0.1 — Initial Release
-- Root-level GPS injection without Developer Options
-- KernelSU WebUI with Leaflet.js map
-- 24 city presets, drag-to-set pin
-- Jitter engine, multi-provider support
-- Boot persistence option
+**v1.0.1**
+- Initial release
 
 ---
 
-## Responsible Use & Legal Disclaimer
+## Legal
 
-> [!IMPORTANT]
-> This software is designed and distributed strictly for **software development, application QA testing, academic research, location privacy, and geolocation simulation**.
->
-> - **Compliance:** Use in compliance with all applicable local laws and the Terms of Service of any third-party application.
-> - **Anti-Fraud:** This tool is **not** intended to bypass anti-cheat systems in games, commit rideshare or delivery fraud, spoof attendance or time-tracking systems, or gain unauthorized advantages in any system. The author does not condone or take responsibility for illicit use.
-> - **As-Is:** Provided under MIT License without warranties of any kind. Use at your own risk on your own devices.
+This software is provided for use in software development, application QA, geolocation testing, and personal location privacy.
 
----
+It is not intended to defraud ride-sharing or delivery platforms, bypass anti-cheat systems in games, spoof attendance or time-tracking systems, or violate the terms of service of any third-party application. The author takes no responsibility for misuse.
 
-## License
-
-MIT License © 2024 [Silxcode](https://github.com/Silxcode)  
-Open source map tiles © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright), Esri, and [Leaflet.js](https://leafletjs.com).
+Distributed under the [MIT License](LICENSE).  
+Map tiles: OpenStreetMap contributors, Esri, Leaflet.js.
