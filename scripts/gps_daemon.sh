@@ -78,8 +78,9 @@ else
     settings put global ble_scan_always_enabled 0 2>/dev/null
 fi
 
-# Kill Google Maps cache only (safe — Maps restarts cleanly)
+# Kill location-caching apps so they fetch fresh (spoofed) location
 am force-stop com.google.android.apps.maps 2>/dev/null
+am force-stop in.gov.indiapost.myemployee 2>/dev/null
 
 # Helper function to extract json values
 get_json_val() {
