@@ -105,7 +105,7 @@
     console.log('[KernelSU Bridge Emulation] Executing:', cmd);
     
     if (state.targetApps.length === 0) {
-      state.targetApps = ['com.google.android.apps.maps', 'in.gov.indiapost.myemployee'];
+      state.targetApps = ['com.google.android.apps.maps'];
     }
 
     if (cmd.includes('status')) {
