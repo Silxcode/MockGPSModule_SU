@@ -149,7 +149,7 @@ is_daemon_running() {
         if [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null; then
             CMDLINE=$(cat "/proc/$PID/cmdline" 2>/dev/null | tr '\0' ' ')
             case "$CMDLINE" in
-                *gps_daemon*) return 0 ;;
+                *FakeGPSDaemon*|*fakegps.dex*|*gps_daemon*) return 0 ;;
             esac
             rm -f "$PID_FILE"
         fi
@@ -247,15 +247,26 @@ cmd_start() {
         return 0
     fi
 
-    # Ensure executable permission
-    chmod 0755 "$SCRIPT_DIR/gps_daemon.sh" 2>/dev/null
-
-    # Launch daemon in fully detached session via setsid to prevent session death
-    ( trap '' HUP INT TERM; setsid /system/bin/sh "$SCRIPT_DIR/gps_daemon.sh" </dev/null >> "$CONFIG_DIR/daemon.log" 2>&1 ) &
-    DAEMON_PID=$!
+    # Launch persistent Java daemon via app_process.
+    # This maintains a long-lived binder to LocationManagerService exactly like
+    # Lexi Fake GPS does — providers survive as long as this process is alive.
+    DEX_FILE="$SCRIPT_DIR/fakegps.dex"
+    if [ -f "$DEX_FILE" ] && [ -x "/system/bin/app_process" ]; then
+        ( trap '' HUP INT TERM
+          setsid env CLASSPATH="$DEX_FILE" /system/bin/app_process /system FakeGPSDaemon \
+              </dev/null >> "$CONFIG_DIR/daemon.log" 2>&1 ) &
+        DAEMON_PID=$!
+    else
+        # Fallback: shell daemon (cmd-based, providers may revert on parent exit)
+        chmod 0755 "$SCRIPT_DIR/gps_daemon.sh" 2>/dev/null
+        ( trap '' HUP INT TERM
+          setsid /system/bin/sh "$SCRIPT_DIR/gps_daemon.sh" \
+              </dev/null >> "$CONFIG_DIR/daemon.log" 2>&1 ) &
+        DAEMON_PID=$!
+    fi
     echo "$DAEMON_PID" > "$PID_FILE"
 
-    sleep 0.3
+    sleep 0.5
     echo "{\"success\":true,\"message\":\"Mock GPS daemon started\",\"pid\":$DAEMON_PID}"
 }
 
