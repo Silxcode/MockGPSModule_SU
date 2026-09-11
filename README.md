@@ -2,7 +2,7 @@
 
 [![KernelSU](https://img.shields.io/badge/KernelSU--Next-supported-brightgreen.svg)](https://github.com/rifsxd/KernelSU-Next)
 [![Android](https://img.shields.io/badge/Android-10--15-blue.svg)](https://developer.android.com/)
-[![Version](https://img.shields.io/badge/version-v1.0.8-informational.svg)](https://github.com/Silxcode/MockGPSModule_SU/releases)
+[![Version](https://img.shields.io/badge/version-v1.0.9-informational.svg)](https://github.com/Silxcode/MockGPSModule_SU/releases)
 [![License](https://img.shields.io/badge/license-MIT-lightgrey.svg)](LICENSE)
 
 A root-level GPS spoofing module for KernelSU, KernelSU-Next, APatch, and Magisk. Operates via Android's system test provider interface — no Developer Options required, no third-party mock location app selection. Ships with an on-device WebUI and a network fingerprint shield that suppresses secondary location signals from reaching Google's servers.
@@ -196,6 +196,11 @@ To spoof location in apps that check `Location.isMock()`:
 ---
 
 ## Changelog
+
+**v1.0.9**
+- Replaced hijacking of system `fused` provider with clean injection into `gps` and `network` only
+- Preserved Android's internal `FusedLocationProviderManager` pipeline, resolving location dropouts in Google Play Services and attendance apps (Dak-Saathi)
+- Added automatic purge of stale `fused` test providers on startup and shutdown
 
 **v1.0.8**
 - Removed disruptive `network_location_opt_in=0` content insert that triggered the Google Location Accuracy modal prompt
