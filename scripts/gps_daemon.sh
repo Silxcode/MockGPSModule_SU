@@ -70,10 +70,18 @@ done
 # Dynamically evict target apps configured by the user
 evict_target_apps() {
     if [ -f "$CONFIG_FILE" ]; then
-        APPS=$(sed -n '/"target_apps"/,/\]/p' "$CONFIG_FILE" 2>/dev/null \
-            | grep -oE '"[a-zA-Z0-9_\.]+"' \
-            | grep -v "target_apps" \
-            | tr -d '"')
+        APPS=$(awk '
+            BEGIN { in_arr = 0 }
+            /"target_apps"/ {
+                sub(/.*"target_apps"[ \t]*:[ \t]*\[/, "")
+                if (/\]/) { sub(/\].*/, ""); print; next }
+                in_arr = 1; print; next
+            }
+            in_arr {
+                if (/\]/) { sub(/\].*/, ""); print; in_arr = 0; next }
+                print
+            }
+        ' "$CONFIG_FILE" 2>/dev/null | grep -oE '"[a-zA-Z0-9_\.]+"' | tr -d '"')
         for app in $APPS; do
             if [ -n "$app" ]; then
                 am force-stop "$app" 2>/dev/null

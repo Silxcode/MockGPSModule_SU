@@ -33,10 +33,18 @@ fi
 
 get_target_apps() {
     if [ -f "$CONFIG_FILE" ]; then
-        sed -n '/"target_apps"/,/\]/p' "$CONFIG_FILE" 2>/dev/null \
-            | grep -oE '"[a-zA-Z0-9_\.]+"' \
-            | grep -v "target_apps" \
-            | tr -d '"'
+        awk '
+            BEGIN { in_arr = 0 }
+            /"target_apps"/ {
+                sub(/.*"target_apps"[ \t]*:[ \t]*\[/, "")
+                if (/\]/) { sub(/\].*/, ""); print; next }
+                in_arr = 1; print; next
+            }
+            in_arr {
+                if (/\]/) { sub(/\].*/, ""); print; in_arr = 0; next }
+                print
+            }
+        ' "$CONFIG_FILE" 2>/dev/null | grep -oE '"[a-zA-Z0-9_\.]+"' | tr -d '"'
     fi
 }
 
