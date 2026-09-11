@@ -38,8 +38,8 @@ CONFIG_FILE="$CONFIG_DIR/config.json"
         ENABLED=$(grep '"enabled"[[:space:]]*:[[:space:]]*true' "$CONFIG_FILE" 2>/dev/null)
         
         if [ -n "$BOOT_PERSIST" ] && [ -n "$ENABLED" ]; then
-            if [ -x "$MODDIR/scripts/gps_control.sh" ]; then
-                "$MODDIR/scripts/gps_control.sh" start >/dev/null 2>&1
+            if [ -f "$MODDIR/scripts/gps_control.sh" ]; then
+                /system/bin/sh "$MODDIR/scripts/gps_control.sh" start >/dev/null 2>&1
             fi
         fi
     fi

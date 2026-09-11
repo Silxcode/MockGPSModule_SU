@@ -2,7 +2,7 @@
 
 [![KernelSU](https://img.shields.io/badge/KernelSU--Next-supported-brightgreen.svg)](https://github.com/rifsxd/KernelSU-Next)
 [![Android](https://img.shields.io/badge/Android-10--15-blue.svg)](https://developer.android.com/)
-[![Version](https://img.shields.io/badge/version-v1.0.9-informational.svg)](https://github.com/Silxcode/MockGPSModule_SU/releases)
+[![Version](https://img.shields.io/badge/version-v1.1.0-informational.svg)](https://github.com/Silxcode/MockGPSModule_SU/releases)
 [![License](https://img.shields.io/badge/license-MIT-lightgrey.svg)](LICENSE)
 
 A root-level GPS spoofing module for KernelSU, KernelSU-Next, APatch, and Magisk. Operates via Android's system test provider interface — no Developer Options required, no third-party mock location app selection. Ships with an on-device WebUI and a network fingerprint shield that suppresses secondary location signals from reaching Google's servers.
@@ -196,6 +196,13 @@ To spoof location in apps that check `Location.isMock()`:
 ---
 
 ## Changelog
+
+**v1.1.0**
+- Fixed silent daemon execution failure caused by Android `/data` partition `noexec` mount flag by explicitly invoking `/system/bin/sh`
+- Added immediate synchronous test provider registration and instant location injection in `cmd_start` across `gps`, `network`, and `fused` providers (0ms latency)
+- Added robust process verification in `is_daemon_running` using POSIX parameter expansion to prevent false dead states on global mksh environments
+- Streamlined WebUI: removed unused/cluttered sections (IP shield, diagnostics telemetry, altitude, jitter, persistence switches), maintaining a clean, responsive interface matching Lexa Fake GPS
+- Synchronous coordinate updates in `cmd_set` whenever spoofing is active with immediate target app eviction
 
 **v1.0.9**
 - Replaced hijacking of system `fused` provider with clean injection into `gps` and `network` only

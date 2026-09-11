@@ -147,11 +147,10 @@ is_daemon_running() {
     if [ -f "$PID_FILE" ]; then
         PID=$(cat "$PID_FILE" 2>/dev/null | tr -d ' \r\n')
         if [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null; then
-            # Verify process cmdline actually belongs to gps_daemon to avoid PID recycling collision
-            if grep -qa "gps_daemon" "/proc/$PID/cmdline" 2>/dev/null; then
-                return 0
-            fi
-            # Stale PID file matching an unrelated process — prune it
+            CMDLINE=$(cat "/proc/$PID/cmdline" 2>/dev/null | tr '\0' ' ')
+            case "$CMDLINE" in
+                *gps_daemon*) return 0 ;;
+            esac
             rm -f "$PID_FILE"
         fi
     fi
@@ -187,13 +186,6 @@ cmd_status() {
     LIVE_STATUS="{}"
     [ -f "$STATUS_FILE" ] && LIVE_STATUS=$(cat "$STATUS_FILE" 2>/dev/null)
 
-    # Gather network shield and VPN info
-    NET_JSON="{}"
-    if [ -x "$SCRIPT_DIR/net_shield.sh" ]; then
-        NET_JSON=$("$SCRIPT_DIR/net_shield.sh" status 2>/dev/null)
-        [ -z "$NET_JSON" ] && NET_JSON="{}"
-    fi
-
     cat << EOF
 {
   "active": $RUNNING,
@@ -201,8 +193,7 @@ cmd_status() {
   "dev_options_enabled": "$DEV_OPTIONS",
   "mock_location_app": "$MOCK_APP",
   "config": $CONFIG_CONTENT,
-  "status": $LIVE_STATUS,
-  "net": $NET_JSON
+  "status": $LIVE_STATUS
 }
 EOF
 }
@@ -210,20 +201,55 @@ EOF
 cmd_start() {
     update_json_val "enabled" "true"
 
+    # Pre-grant mock location capability to system shell, root, and system server across users
+    for u in 0 1000 2000; do
+        appops set --user 0 $u android:mock_location allow 2>/dev/null
+        appops set $u android:mock_location allow 2>/dev/null
+    done
+    appops set --user 0 com.android.shell android:mock_location allow 2>/dev/null
+    appops set com.android.shell android:mock_location allow 2>/dev/null
+    appops set --user 0 android android:mock_location allow 2>/dev/null
+    appops set android android:mock_location allow 2>/dev/null
+
+    # Ensure system location is enabled
+    cmd location set-location-enabled true 2>/dev/null
+
+    # Suppress Wi-Fi and Bluetooth scanning to prevent Google Location Accuracy from overriding GPS
+    settings put global wifi_scan_always_enabled 0 2>/dev/null
+    settings put global ble_scan_always_enabled 0 2>/dev/null
+
+    # Immediate synchronous injection
+    LAT=$(get_json_val "latitude" "35.6895")
+    LNG=$(get_json_val "longitude" "139.6917")
+    ACC=$(get_json_val "accuracy" "5.0")
+
+    for p in gps network fused; do
+        cmd location providers remove-test-provider "$p" 2>/dev/null
+        if ! cmd location providers add-test-provider "$p" --supportsAltitude --supportsSpeed --supportsBearing 2>/dev/null; then
+            cmd location providers add-test-provider "$p" 2>/dev/null
+        fi
+        cmd location providers set-test-provider-enabled "$p" true 2>/dev/null
+        cmd location providers set-test-provider-location "$p" --location "${LAT},${LNG}" --accuracy "${ACC}" 2>/dev/null
+    done
+
+    # Evict target apps so they immediately bind to the spoofed location
+    evict_target_apps
+
     if is_daemon_running; then
-        PID=$(cat "$PID_FILE" 2>/dev/null)
+        PID=$(cat "$PID_FILE" 2>/dev/null | tr -d ' \r\n')
         echo "{\"success\":true,\"message\":\"Daemon already running (PID: $PID)\",\"pid\":$PID}"
         return 0
     fi
 
     # Ensure executable permission
-    chmod 0755 "$SCRIPT_DIR/gps_daemon.sh"
+    chmod 0755 "$SCRIPT_DIR/gps_daemon.sh" 2>/dev/null
 
-    # Launch daemon in background detached with explicit decoupling
-    ( trap '' HUP; "$SCRIPT_DIR/gps_daemon.sh" </dev/null >/dev/null 2>&1 ) &
+    # Launch daemon in background via /system/bin/sh to bypass /data noexec mount
+    ( trap '' HUP; exec /system/bin/sh "$SCRIPT_DIR/gps_daemon.sh" ) </dev/null >> "$CONFIG_DIR/daemon.log" 2>&1 &
     DAEMON_PID=$!
+    echo "$DAEMON_PID" > "$PID_FILE"
 
-    sleep 0.5
+    sleep 0.3
     echo "{\"success\":true,\"message\":\"Mock GPS daemon started\",\"pid\":$DAEMON_PID}"
 }
 
@@ -232,19 +258,21 @@ cmd_stop() {
 
     if is_daemon_running; then
         PID=$(cat "$PID_FILE" 2>/dev/null | tr -d ' \r\n')
-        # Only kill if the process is verified as gps_daemon
-        if grep -qa "gps_daemon" "/proc/$PID/cmdline" 2>/dev/null; then
-            kill -TERM "$PID" 2>/dev/null
-            # Wait up to 2 seconds for clean cleanup
-            for i in 1 2 3 4; do
-                if ! kill -0 "$PID" 2>/dev/null; then
-                    break
-                fi
-                sleep 0.5
-            done
-            # Force kill if still lingering
-            kill -9 "$PID" 2>/dev/null
-        fi
+        CMDLINE=$(cat "/proc/$PID/cmdline" 2>/dev/null | tr '\0' ' ')
+        case "$CMDLINE" in
+            *gps_daemon*)
+                kill -TERM "$PID" 2>/dev/null
+                # Wait up to 1.5 seconds for clean cleanup
+                for i in 1 2 3 4 5; do
+                    if ! kill -0 "$PID" 2>/dev/null; then
+                        break
+                    fi
+                    sleep 0.3
+                done
+                # Force kill if still lingering
+                kill -9 "$PID" 2>/dev/null
+                ;;
+        esac
     fi
 
     # Ensure test providers are fully removed
@@ -280,9 +308,10 @@ cmd_set() {
 
     write_full_config "$CUR_ENABLED" "$LAT" "$LNG" "$ALT" "$ACC" "$JIT" "$CUR_PERSIST"
 
-    # If daemon is running, immediately update mock location in all providers for zero latency
-    if is_daemon_running; then
-        for p in gps network; do
+    # If mock GPS is enabled or daemon is running, immediately update mock location in all providers
+    if [ "$CUR_ENABLED" = "true" ] || is_daemon_running; then
+        for p in gps network fused; do
+            cmd location providers set-test-provider-enabled "$p" true 2>/dev/null
             cmd location providers set-test-provider-location "$p" --location "${LAT},${LNG}" --accuracy "${ACC}" 2>/dev/null
         done
         # Evict target apps so they fetch fresh location

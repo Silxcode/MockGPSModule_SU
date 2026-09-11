@@ -1,6 +1,6 @@
 id=ksu_fakegps
 name=KSU Location Sandbox (WebUI)
-version=v1.0.9
-versionCode=1090
+version=v1.1.0
+versionCode=1100
 author=Silxcode
 description=Developer-oriented geolocation testing and privacy simulation suite with embedded WebUI. Operates via system test providers without toggling Developer Options.

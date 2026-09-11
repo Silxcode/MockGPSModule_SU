@@ -12,7 +12,7 @@ STATUS_FILE="$CONFIG_DIR/status.json"
 mkdir -p "$CONFIG_DIR"
 echo "$$" > "$PID_FILE"
 
-PROVIDERS="gps network"
+PROVIDERS="gps network fused"
 LOG_FILE="$CONFIG_DIR/daemon.log"
 
 SCRIPT_DIR=${0%/*}
@@ -59,7 +59,6 @@ settings put global ble_scan_always_enabled 0 2>/dev/null
 echo "[$(date)] Registering test providers..." > "$LOG_FILE"
 
 # Clean and register test providers with full capabilities (supports altitude, speed, bearing) without restrictive hardware requirements
-cmd location providers remove-test-provider fused 2>/dev/null
 for p in $PROVIDERS; do
     cmd location providers remove-test-provider "$p" 2>/dev/null
     if ! cmd location providers add-test-provider "$p" --supportsAltitude --supportsSpeed --supportsBearing >> "$LOG_FILE" 2>&1; then

@@ -18,9 +18,6 @@
     lat: DEFAULT_LAT,
     lng: DEFAULT_LNG,
     accuracy: 5.0,
-    altitude: 40.0,
-    jitter: true,
-    bootPersist: false,
     targetApps: [],
     userEditingCoords: false,
     isKsuAvailable: false,
@@ -41,9 +38,6 @@
     inputLat: document.getElementById('input-lat'),
     inputLng: document.getElementById('input-lng'),
     inputAccuracy: document.getElementById('input-accuracy'),
-    inputAltitude: document.getElementById('input-altitude'),
-    switchJitter: document.getElementById('switch-jitter'),
-    switchPersist: document.getElementById('switch-persist'),
     searchForm: document.getElementById('search-form'),
     searchInput: document.getElementById('search-input'),
     btnLocateMe: document.getElementById('btn-locate-me'),
@@ -59,12 +53,6 @@
     inputAppPkg: document.getElementById('input-app-pkg'),
     targetAppsContainer: document.getElementById('target-apps-container'),
     btnEvictNow: document.getElementById('btn-evict-now'),
-    telemetryToggle: document.getElementById('telemetry-toggle'),
-    telemetryBody: document.getElementById('telemetry-body'),
-    telemDevOpts: document.getElementById('telem-dev-opts'),
-    telemMockApp: document.getElementById('telem-mock-app'),
-    telemPid: document.getElementById('telem-pid'),
-    telemBridge: document.getElementById('telem-bridge'),
     toastContainer: document.getElementById('toast-container')
   };
 
@@ -370,11 +358,9 @@
     state.updateDebounceTimer = setTimeout(async () => {
       const safeLat = sanitizeNumber(state.lat, DEFAULT_LAT, -90, 90).toFixed(7);
       const safeLng = sanitizeNumber(state.lng, DEFAULT_LNG, -180, 180).toFixed(7);
-      const safeAlt = sanitizeNumber(state.altitude, 40.0, -500, 9000).toFixed(1);
       const safeAcc = sanitizeNumber(state.accuracy, 5.0, 1, 100).toFixed(1);
-      const safeJit = state.jitter ? 'true' : 'false';
 
-      const cmd = `sh ${MODULE_SCRIPT_PATH} set ${safeLat} ${safeLng} ${safeAlt} ${safeAcc} ${safeJit}`;
+      const cmd = `sh ${MODULE_SCRIPT_PATH} set ${safeLat} ${safeLng} 0.0 ${safeAcc} false`;
       await execCmd(cmd);
       showToast(`Coordinates updated: ${safeLat}, ${safeLng}`);
       setTimeout(() => { state.userEditingCoords = false; }, 1500);
@@ -395,10 +381,6 @@
       // Badges
       el.badgeStatus.className = 'badge badge-status active';
       el.badgeStatusText.textContent = 'ACTIVE';
-
-      // Telemetry
-      el.telemPid.textContent = `Running (PID: ${state.pid || 'Active'})`;
-      el.telemPid.style.color = 'var(--emerald-active)';
     } else {
       // Button: Inactive (Start)
       el.btnMasterToggle.className = 'btn-master btn-start';
@@ -408,17 +390,7 @@
       // Badges
       el.badgeStatus.className = 'badge badge-status';
       el.badgeStatusText.textContent = 'IDLE';
-
-      // Telemetry
-      el.telemPid.textContent = 'Stopped';
-      el.telemPid.style.color = 'var(--text-muted)';
     }
-
-    // Bridge status
-    el.telemBridge.textContent = state.isKsuAvailable 
-      ? 'KernelSU Root Bridge (Connected)' 
-      : 'WebUI Sandbox / Emulated Bridge';
-    el.telemBridge.style.color = state.isKsuAvailable ? 'var(--cyan-hover)' : 'var(--amber-warning)';
   }
 
   /* -------------------------------------------------------------------------- */
@@ -438,15 +410,12 @@
       } else {
         // Start Spoofing
         showToast("Starting Mock GPS Daemon...");
-        // 1. Write selected coordinates and settings (preserves configured target apps)
         const safeLat = sanitizeNumber(state.lat, DEFAULT_LAT, -90, 90).toFixed(7);
         const safeLng = sanitizeNumber(state.lng, DEFAULT_LNG, -180, 180).toFixed(7);
-        const safeAlt = sanitizeNumber(state.altitude, 40.0, -500, 9000).toFixed(1);
         const safeAcc = sanitizeNumber(state.accuracy, 5.0, 1, 100).toFixed(1);
-        const safeJit = state.jitter ? 'true' : 'false';
-        await execCmd(`sh ${MODULE_SCRIPT_PATH} set ${safeLat} ${safeLng} ${safeAlt} ${safeAcc} ${safeJit}`);
+        await execCmd(`sh ${MODULE_SCRIPT_PATH} set ${safeLat} ${safeLng} 0.0 ${safeAcc} false`);
         
-        // 2. Launch daemon
+        // Launch daemon
         const res = await execCmd(`sh ${MODULE_SCRIPT_PATH} start`);
         state.isActive = true;
         renderState();
@@ -472,30 +441,11 @@
       }
     });
 
-    // Accuracy & Altitude
+    // Accuracy
     el.inputAccuracy.addEventListener('change', () => {
       state.accuracy = sanitizeNumber(el.inputAccuracy.value, 5.0, 1, 100);
       el.inputAccuracy.value = state.accuracy;
       if (state.isActive) debounceSyncToDaemon();
-    });
-
-    el.inputAltitude.addEventListener('change', () => {
-      state.altitude = sanitizeNumber(el.inputAltitude.value, 40.0, -500, 9000);
-      el.inputAltitude.value = state.altitude;
-      if (state.isActive) debounceSyncToDaemon();
-    });
-
-    // Switches
-    el.switchJitter.addEventListener('change', () => {
-      state.jitter = el.switchJitter.checked;
-      if (state.isActive) debounceSyncToDaemon();
-      showToast(state.jitter ? "Satellite drift enabled" : "Satellite drift disabled");
-    });
-
-    el.switchPersist.addEventListener('change', async () => {
-      state.bootPersist = el.switchPersist.checked;
-      await execCmd(`sh ${MODULE_SCRIPT_PATH} persist ${state.bootPersist ? 'true' : 'false'}`);
-      showToast(state.bootPersist ? "Will persist after boot" : "Boot persistence disabled");
     });
 
     // Preset Scroll Buttons
@@ -698,185 +648,6 @@
   }
 
   /* -------------------------------------------------------------------------- */
-  /* IP Geolocation Check & Network Shield                                      */
-  /* -------------------------------------------------------------------------- */
-
-  // Known country codes per region — bounding boxes for GPS-to-country matching
-  const COUNTRY_BY_PRESET = [
-    ['JP', [30, 46], [129, 146]],
-    ['CA', [49, 84], [-141, -52]],
-    ['CA', [41.7, 49], [-95, -74]], // Southern Ontario & Quebec corridor
-    ['US', [24, 49], [-125, -66]],  // Contiguous US
-    ['US', [51, 72], [-179, -130]], // Alaska
-    ['GB', [49, 60], [-8, 2]],
-    ['FR', [42, 52], [-5, 8]],
-    ['IN', [8, 37], [68, 97]],
-    ['AE', [22, 27], [51, 57]],
-    ['SG', [1, 2], [103, 105]],
-    ['AU', [-45, -10], [110, 155]],
-    ['DE', [47, 56], [6, 16]],
-    ['BR', [-35, 5], [-74, -34]],
-    ['CN', [18, 54], [73, 136]],
-    ['KR', [33, 43], [124, 132]],
-    ['RU', [41, 82], [19, 180]],
-    ['MX', [14, 33], [-118, -86]],
-    ['IT', [36, 48], [6, 19]],
-    ['ES', [36, 44], [-10, 5]],
-    ['NL', [50, 54], [3, 8]],
-    ['CH', [45, 48], [5, 11]],
-    ['TR', [35, 43], [25, 45]],
-  ];
-
-  function guessCountryFromCoords(lat, lng) {
-    for (const [code, [latRange, lngRange]] of COUNTRY_BY_PRESET) {
-      if (lat >= latRange[0] && lat <= latRange[1] &&
-          lng >= lngRange[0] && lng <= lngRange[1]) {
-        return code;
-      }
-    }
-    return null;
-  }
-
-  let ipCheckInProgress = false;
-
-  async function fetchIpInfo() {
-    if (ipCheckInProgress) return;
-    ipCheckInProgress = true;
-
-    const ipEl    = document.getElementById('telem-ip');
-    const cityEl  = document.getElementById('telem-ip-city');
-    const matchEl = document.getElementById('telem-ip-match');
-    const mismatchWarn = document.getElementById('ip-mismatch-warn');
-    const matchOk = document.getElementById('ip-match-ok');
-
-    if (ipEl) ipEl.textContent = 'Checking...';
-    if (cityEl) cityEl.textContent = 'Checking...';
-    if (matchEl) matchEl.textContent = 'Checking...';
-
-    const showResult = (ipAddr, city, country, countryCode) => {
-      if (ipEl) { ipEl.textContent = ipAddr; ipEl.style.color = 'var(--text-secondary)'; }
-      if (cityEl) { cityEl.textContent = city ? `${city}, ${country}` : country || 'Unknown'; cityEl.style.color = 'var(--text-secondary)'; }
-
-      const spoofedCountry = guessCountryFromCoords(state.lat, state.lng);
-      const isMatch = spoofedCountry && spoofedCountry === countryCode;
-
-      if (matchEl) {
-        if (!spoofedCountry) {
-          matchEl.textContent = 'Unknown region — cannot compare';
-          matchEl.style.color = 'var(--text-muted)';
-        } else if (isMatch) {
-          matchEl.textContent = `Match — both resolving to ${countryCode}`;
-          matchEl.style.color = 'var(--emerald-active)';
-        } else {
-          matchEl.textContent = `Mismatch — IP: ${countryCode}, GPS: ${spoofedCountry}`;
-          matchEl.style.color = 'var(--amber-warning)';
-        }
-      }
-      if (mismatchWarn) mismatchWarn.style.display = (!isMatch && spoofedCountry) ? 'block' : 'none';
-      if (matchOk)      matchOk.style.display = isMatch ? 'block' : 'none';
-    };
-
-    const showError = (msg) => {
-      if (ipEl) ipEl.textContent = 'Unavailable';
-      if (cityEl) cityEl.textContent = msg;
-      if (matchEl) { matchEl.textContent = 'Check failed'; matchEl.style.color = 'var(--text-muted)'; }
-    };
-
-    try {
-      // Primary path: route through root shell to avoid WebView CORS/network restrictions.
-      // net_shield.sh ip-check runs wget/curl on the root process — no browser policy applies.
-      if (state.isKsuAvailable) {
-        const res = await execCmd(`sh ${MODULE_SCRIPT_PATH} net-shield ip-check`);
-        if (res && (res.errno == 0 || res.errno === 0) && res.stdout) {
-          const data = safeParseJson(res.stdout);
-          if (data && data.status === 'success') {
-            showResult(data.query || '?', data.city || data.regionName, data.country, data.countryCode);
-            ipCheckInProgress = false;
-            return;
-          }
-        }
-      }
-
-      // Fallback: direct browser fetch (works in desktop preview or if KSU bridge unavailable)
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 6000);
-      let data = null;
-      try {
-        const r = await fetch(
-          'https://ip-api.com/json/?fields=status,country,countryCode,regionName,city,query',
-          { signal: controller.signal }
-        );
-        data = await r.json();
-      } finally {
-        clearTimeout(timer);
-      }
-
-      if (data && data.status === 'success') {
-        showResult(data.query || '?', data.city || data.regionName, data.country, data.countryCode);
-      } else {
-        showError('Geo lookup failed');
-      }
-    } catch (e) {
-      showError('No network / fetch blocked');
-    } finally {
-      ipCheckInProgress = false;
-    }
-  }
-
-  async function updateNetShieldStatus(data) {
-    const shieldEl = document.getElementById('telem-shield');
-    const vpnEl = document.getElementById('telem-vpn');
-    const wifiEl = document.getElementById('telem-wifi-scan');
-
-    if (!data || !data.net) return;
-    const net = data.net;
-
-    if (shieldEl) {
-      const shieldOn = net.shield_active === true || net.shield_active === 'true';
-      shieldEl.textContent = shieldOn ? '🛡️ Active (GMS geo blocked)' : '⬜ Off';
-      shieldEl.style.color = shieldOn ? 'var(--emerald-active)' : 'var(--text-muted)';
-    }
-
-    if (vpnEl && net.vpn) {
-      const vpn = net.vpn;
-      const vpnOn = vpn.vpn_active === true || vpn.vpn_active === 'true';
-      vpnEl.textContent = vpnOn
-        ? `✅ Active — ${vpn.iface} (${vpn.tunnel_ip || 'tunneled'})`
-        : '❌ No VPN detected';
-      vpnEl.style.color = vpnOn ? 'var(--emerald-active)' : 'var(--rose-danger)';
-    }
-
-    if (wifiEl) {
-      const wifiScan = String(net.wifi_scan);
-      wifiEl.textContent = wifiScan === '0' ? '✅ Disabled (suppressed)' : '⚠️ Enabled (can leak location)';
-      wifiEl.style.color = wifiScan === '0' ? 'var(--emerald-active)' : 'var(--amber-warning)';
-    }
-  }
-
-  async function toggleNetShield() {
-    const shieldEl = document.getElementById('telem-shield');
-    const currentOn = shieldEl && shieldEl.textContent.includes('Active');
-    const action = currentOn ? 'off' : 'on';
-
-    showToast(`${action === 'on' ? 'Enabling' : 'Disabling'} network shield...`);
-    const cmd = `sh ${MODULE_SCRIPT_PATH} net-shield ${action}`;
-    const res = await execCmd(cmd);
-
-    // errno may be number or string depending on KernelSU bridge version — use loose equality
-    if (res && res.errno == 0) {
-      showToast(`Network shield ${action === 'on' ? 'enabled' : 'disabled'}`);
-      await fetchDaemonStatus();
-    } else if (res && res.stdout && res.stdout.includes('shield')) {
-      // Script returned valid JSON even with non-zero exit — treat as success
-      showToast(`Network shield ${action === 'on' ? 'enabled' : 'disabled'}`);
-      await fetchDaemonStatus();
-    } else {
-      const errDetail = res ? (res.stderr || res.stdout || 'no output') : 'no response';
-      showToast(`Shield toggle error — ${errDetail.substring(0, 60)}`);
-    }
-  }
-
-  /* -------------------------------------------------------------------------- */
   /* Daemon Polling & Sync                                                      */
   /* -------------------------------------------------------------------------- */
 
@@ -901,15 +672,9 @@
             state.lat = data.config.latitude;
             state.lng = data.config.longitude;
             state.accuracy = data.config.accuracy ?? state.accuracy;
-            state.altitude = data.config.altitude ?? state.altitude;
-            state.jitter = data.config.jitter ?? state.jitter;
-            state.bootPersist = data.config.boot_persist ?? state.bootPersist;
 
             // Update UI controls
             el.inputAccuracy.value = state.accuracy;
-            el.inputAltitude.value = state.altitude;
-            el.switchJitter.checked = state.jitter;
-            el.switchPersist.checked = state.bootPersist;
 
             updateCoordinates(state.lat, state.lng, false);
             if (isInitialLoad && map) {
@@ -923,22 +688,6 @@
         if (data.config && Array.isArray(data.config.target_apps)) {
           renderTargetApps(data.config.target_apps);
         }
-
-        // Developer Options Status Readout
-        if (data.dev_options_enabled === "0") {
-          el.telemDevOpts.textContent = "Disabled (value: 0) [Safe]";
-          el.telemDevOpts.className = "telemetry-val val-secure";
-        } else {
-          el.telemDevOpts.textContent = `Enabled (value: ${data.dev_options_enabled})`;
-          el.telemDevOpts.className = "telemetry-val";
-        }
-
-        if (data.mock_location_app) {
-          el.telemMockApp.textContent = data.mock_location_app === "none" ? "None (Undetected)" : data.mock_location_app;
-        }
-
-        // Update network shield / VPN status
-        await updateNetShieldStatus(data);
 
         renderState();
       }
@@ -958,66 +707,11 @@
     setupEventListeners();
     renderState();
 
-    // IP panel accordion
-    const ipToggle = document.getElementById('ip-panel-toggle');
-    const ipBody = document.getElementById('ip-panel-body');
-    if (ipToggle && ipBody) {
-      ipToggle.addEventListener('click', () => {
-        ipToggle.classList.toggle('collapsed');
-        ipBody.classList.toggle('hidden');
-      });
-    }
-
-    // IP check button
-    const btnCheckIp = document.getElementById('btn-check-ip');
-    if (btnCheckIp) {
-      btnCheckIp.addEventListener('click', () => {
-        fetchIpInfo();
-        showToast('Checking IP geolocation...');
-      });
-    }
-
-    // Shield toggle button
-    const btnShieldToggle = document.getElementById('btn-shield-toggle');
-    if (btnShieldToggle) {
-      btnShieldToggle.addEventListener('click', toggleNetShield);
-    }
-
-    // View Live Daemon Log button
-    const btnViewLog = document.getElementById('btn-view-log');
-    const logOutput = document.getElementById('daemon-log-output');
-    if (btnViewLog && logOutput) {
-      btnViewLog.addEventListener('click', async () => {
-        if (logOutput.style.display === 'none' || !logOutput.style.display) {
-          btnViewLog.textContent = 'Loading Log...';
-          const res = await execCmd(`sh ${MODULE_SCRIPT_PATH} log`);
-          logOutput.textContent = res ? (res.stdout || res.stderr || 'No log output') : 'No output';
-          logOutput.style.display = 'block';
-          btnViewLog.textContent = 'Hide Daemon Log';
-        } else {
-          logOutput.style.display = 'none';
-          btnViewLog.textContent = 'View Live Daemon Log';
-        }
-      });
-    }
-
     // Initial status check
     await fetchDaemonStatus();
 
-    // Fetch IP on load (non-blocking)
-    fetchIpInfo();
-
     // Periodic telemetry refresh every 4 seconds
     setInterval(fetchDaemonStatus, 4000);
-
-    // IP re-check when location changes (debounced 3s)
-    let ipRecheckTimer = null;
-    const origUpdateCoords = updateCoordinates;
-    // Re-check IP match whenever spoofed location changes significantly
-    setInterval(() => {
-      const shieldEl = document.getElementById('telem-ip-match');
-      if (shieldEl && shieldEl.textContent === '') fetchIpInfo();
-    }, 30000);
   }
 
   // Launch when DOM is ready
