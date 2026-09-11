@@ -27,7 +27,7 @@ Standard mock location apps only override the GPS signal. The remaining signals 
 
 ## How It Works
 
-GPS injection happens through the Android `cmd location` interface, which allows a root process to register test providers and feed arbitrary coordinates directly into `LocationManagerService`. The daemon registers itself as `gps`, `network`, and `fused` providers simultaneously, broadcasts coordinates on a 1-second interval, and applies micro-jitter to simulate realistic atmospheric drift.
+GPS injection happens through the Android `cmd location` interface, which allows a root process to register test providers and feed arbitrary coordinates directly into `LocationManagerService`. The daemon registers itself as `gps` and `network` test providers, broadcasts coordinates on a 1-second interval, and applies micro-jitter to simulate realistic atmospheric drift. By leaving the system's `fused` provider intact, Android's internal Fused Location Provider aggregates our mocked GPS coordinates naturally without corrupting the fused pipeline.
 
 The network shield runs alongside the daemon and applies `iptables DROP` rules scoped to the `com.google.android.gms` UID, targeting Google's geolocation IP ranges. This prevents GMS from resolving Wi-Fi BSSID data against Google's location database while leaving authentication, Play Store, and push notifications functional. Wi-Fi and Bluetooth background scanning are suppressed via Android settings. All rules are removed when the daemon stops.
 
@@ -37,7 +37,7 @@ The WebUI runs inside KernelSU Manager's sandboxed WebView and communicates with
 
 ## Features
 
-- Root-level injection into `gps`, `network`, and `fused` providers with no Developer Options changes
+- Root-level injection into `gps` and `network` providers with zero Developer Options changes
 - On-device WebUI with Leaflet.js map — drag pin or search by address
 - 24 city presets
 - Three tile layers: dark canvas (Esri), satellite/hybrid, OpenStreetMap — all offline-capable
@@ -65,7 +65,7 @@ gps_control.sh          -- state management, daemon lifecycle, CLI entry point
         |
         v
 Android LocationManagerService (system_server)
-        providers: gps / network / fused
+        providers: gps / network (consumed by system fused provider)
 ```
 
 ---

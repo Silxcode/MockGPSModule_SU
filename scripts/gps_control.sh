@@ -282,7 +282,7 @@ cmd_set() {
 
     # If daemon is running, immediately update mock location in all providers for zero latency
     if is_daemon_running; then
-        for p in gps network fused; do
+        for p in gps network; do
             cmd location providers set-test-provider-location "$p" --location "${LAT},${LNG}" --accuracy "${ACC}" 2>/dev/null
         done
         # Evict target apps so they fetch fresh location
