@@ -265,6 +265,73 @@
       </div>
     </section>
 
+    <!-- Target Apps to Spoof Card -->
+    <section class="telemetry-card" style="border: 1px solid rgba(6, 182, 212, 0.25);">
+      <div class="telemetry-header" id="apps-panel-toggle" style="cursor: pointer;">
+        <h3 class="telemetry-title">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect>
+            <line x1="12" y1="18" x2="12.01" y2="18"></line>
+          </svg>
+          Target Apps to Spoof
+        </h3>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span class="badge" id="badge-apps-count" style="font-size: 10px; padding: 2px 8px; background: rgba(6,182,212,0.15); color: var(--cyan-primary); border-radius: 9999px;">1 App</span>
+          <svg class="chevron-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+      </div>
+
+      <div class="telemetry-content" id="apps-panel-body">
+        <p style="font-size: 11px; color: var(--text-secondary); margin-bottom: 10px; line-height: 1.4;">
+          Apps that cache location data (attendance, maps, delivery) are force-stopped when location changes so they fetch fresh spoofed coordinates.
+        </p>
+
+        <!-- Quick Add Preset Chips -->
+        <div style="margin-bottom: 10px;">
+          <span style="font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; display: block; margin-bottom: 6px;">Quick Add Presets:</span>
+          <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+            <button type="button" class="btn-action-sm btn-quick-app" data-pkg="in.gov.indiapost.myemployee" title="India Post DakSathi">
+              + 📮 DakSathi
+            </button>
+            <button type="button" class="btn-action-sm btn-quick-app" data-pkg="com.google.android.apps.maps" title="Google Maps">
+              + 🗺️ Google Maps
+            </button>
+            <button type="button" class="btn-action-sm btn-quick-app" data-pkg="com.android.chrome" title="Google Chrome">
+              + 🌐 Chrome
+            </button>
+            <button type="button" class="btn-action-sm btn-quick-app" data-pkg="com.ubercab" title="Uber">
+              + 🚗 Uber
+            </button>
+            <button type="button" class="btn-action-sm btn-quick-app" data-pkg="com.whatsapp" title="WhatsApp">
+              + 💬 WhatsApp
+            </button>
+          </div>
+        </div>
+
+        <!-- Custom Package Input Form -->
+        <form id="form-add-app" style="display: flex; gap: 8px; margin-bottom: 10px;">
+          <input type="text" id="input-app-pkg" class="search-input" style="flex: 1; font-size: 11px; font-family: var(--font-mono); padding: 7px 12px;" placeholder="Package name (e.g. in.gov.indiapost.myemployee)" pattern="[a-zA-Z0-9_\.]+" required autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+          <button type="submit" class="btn-action-sm" style="background: var(--cyan-primary); color: #000; font-weight: 600; white-space: nowrap;">
+            + Add App
+          </button>
+        </form>
+
+        <!-- Active Target Apps Chip Container -->
+        <div id="target-apps-container" style="display: flex; gap: 6px; flex-wrap: wrap; min-height: 28px; margin-bottom: 10px;">
+          <!-- Dynamically populated tags with delete button -->
+        </div>
+
+        <!-- Action row -->
+        <div style="display: flex; gap: 8px; border-top: 1px solid var(--border-subtle); padding-top: 10px;">
+          <button type="button" class="btn-action-sm" id="btn-evict-now" style="width: 100%; justify-content: center; background: rgba(244, 63, 94, 0.12); color: #fb7185; border: 1px solid rgba(244, 63, 94, 0.35);">
+            ⚡ Force-Stop &amp; Clear Target App Caches Now
+          </button>
+        </div>
+      </div>
+    </section>
+
     <!-- IP Check & Network Shield Card -->
     <section class="telemetry-card" style="border: 1px solid rgba(251,191,36,0.2);">
       <div class="telemetry-header" id="ip-panel-toggle" style="cursor:pointer;">

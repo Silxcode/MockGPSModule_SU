@@ -78,9 +78,24 @@ else
     settings put global ble_scan_always_enabled 0 2>/dev/null
 fi
 
-# Kill location-caching apps so they fetch fresh (spoofed) location
-am force-stop com.google.android.apps.maps 2>/dev/null
-am force-stop in.gov.indiapost.myemployee 2>/dev/null
+# Dynamically evict target apps configured by the user
+evict_target_apps() {
+    if [ -f "$CONFIG_FILE" ]; then
+        APPS=$(sed -n '/"target_apps"/,/\]/p' "$CONFIG_FILE" 2>/dev/null \
+            | grep -oE '"[a-zA-Z0-9_\.]+"' \
+            | grep -v "target_apps" \
+            | tr -d '"')
+        for app in $APPS; do
+            if [ -n "$app" ]; then
+                am force-stop "$app" 2>/dev/null
+                echo "[$(date)] Evicted target app: $app" >> "$LOG_FILE"
+            fi
+        done
+    fi
+}
+
+# Initial eviction of target apps so they fetch spoofed coordinates on start
+evict_target_apps
 
 # Helper function to extract json values
 get_json_val() {
@@ -115,6 +130,14 @@ while true; do
     ACCURACY=$(get_json_val "accuracy" "5.0")
     JITTER=$(get_json_val "jitter" "true")
     INTERVAL=$(get_json_val "interval" "1.0")
+
+    # If coordinates have shifted from previous loop tick, evict target apps so they receive fresh location
+    if [ -n "$PREV_BASE_LAT" ] && { [ "$PREV_BASE_LAT" != "$BASE_LAT" ] || [ "$PREV_BASE_LNG" != "$BASE_LNG" ]; }; then
+        echo "[$(date)] Coordinates changed to ${BASE_LAT},${BASE_LNG} — evicting target apps" >> "$LOG_FILE"
+        evict_target_apps
+    fi
+    PREV_BASE_LAT="$BASE_LAT"
+    PREV_BASE_LNG="$BASE_LNG"
 
     TARGET_LAT="$BASE_LAT"
     TARGET_LNG="$BASE_LNG"

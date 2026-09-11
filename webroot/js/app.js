@@ -21,6 +21,8 @@
     altitude: 40.0,
     jitter: true,
     bootPersist: false,
+    targetApps: [],
+    userEditingCoords: false,
     isKsuAvailable: false,
     updateDebounceTimer: null
   };
@@ -50,6 +52,13 @@
     presetsContainer: document.getElementById('presets-container'),
     btnPresetsPrev: document.getElementById('btn-presets-prev'),
     btnPresetsNext: document.getElementById('btn-presets-next'),
+    appsToggle: document.getElementById('apps-panel-toggle'),
+    appsBody: document.getElementById('apps-panel-body'),
+    badgeAppsCount: document.getElementById('badge-apps-count'),
+    formAddApp: document.getElementById('form-add-app'),
+    inputAppPkg: document.getElementById('input-app-pkg'),
+    targetAppsContainer: document.getElementById('target-apps-container'),
+    btnEvictNow: document.getElementById('btn-evict-now'),
     telemetryToggle: document.getElementById('telemetry-toggle'),
     telemetryBody: document.getElementById('telemetry-body'),
     telemDevOpts: document.getElementById('telem-dev-opts'),
@@ -95,6 +104,10 @@
     state.isKsuAvailable = false;
     console.log('[KernelSU Bridge Emulation] Executing:', cmd);
     
+    if (state.targetApps.length === 0) {
+      state.targetApps = ['com.google.android.apps.maps', 'in.gov.indiapost.myemployee'];
+    }
+
     if (cmd.includes('status')) {
       return {
         errno: 0,
@@ -110,7 +123,8 @@
             accuracy: state.accuracy,
             altitude: state.altitude,
             jitter: state.jitter,
-            boot_persist: state.bootPersist
+            boot_persist: state.bootPersist,
+            target_apps: state.targetApps
           },
           status: {
             active: state.isActive,
@@ -135,6 +149,26 @@
     }
     if (cmd.includes('set')) {
       return { errno: 0, stdout: '{"success":true}', stderr: '' };
+    }
+    if (cmd.includes('persist')) {
+      return { errno: 0, stdout: '{"success":true}', stderr: '' };
+    }
+    if (cmd.includes('add-app')) {
+      const match = cmd.match(/add-app\s+([a-zA-Z0-9_\.]+)/);
+      if (match && !state.targetApps.includes(match[1])) {
+        state.targetApps.push(match[1]);
+      }
+      return { errno: 0, stdout: JSON.stringify({ success: true, app: match ? match[1] : '' }), stderr: '' };
+    }
+    if (cmd.includes('remove-app')) {
+      const match = cmd.match(/remove-app\s+([a-zA-Z0-9_\.]+)/);
+      if (match) {
+        state.targetApps = state.targetApps.filter(a => a !== match[1]);
+      }
+      return { errno: 0, stdout: JSON.stringify({ success: true, app: match ? match[1] : '' }), stderr: '' };
+    }
+    if (cmd.includes('evict-apps')) {
+      return { errno: 0, stdout: '{"success":true,"message":"Target apps evicted"}', stderr: '' };
     }
     return { errno: 0, stdout: 'OK', stderr: '' };
   }
@@ -324,8 +358,9 @@
     // Sync Pill
     el.pillCoords.textContent = `${state.lat.toFixed(6)}, ${state.lng.toFixed(6)}`;
 
-    // If active and sync requested, push updates to daemon
-    if (state.isActive && syncDaemon) {
+    // Sync to daemon and config whenever requested
+    if (syncDaemon) {
+      state.userEditingCoords = true;
       debounceSyncToDaemon();
     }
   }
@@ -342,7 +377,8 @@
       const cmd = `sh ${MODULE_SCRIPT_PATH} set ${safeLat} ${safeLng} ${safeAlt} ${safeAcc} ${safeJit}`;
       await execCmd(cmd);
       showToast(`Coordinates updated: ${safeLat}, ${safeLng}`);
-    }, 300);
+      setTimeout(() => { state.userEditingCoords = false; }, 1500);
+    }, 250);
   }
 
   /* -------------------------------------------------------------------------- */
@@ -402,18 +438,13 @@
       } else {
         // Start Spoofing
         showToast("Starting Mock GPS Daemon...");
-        // 1. Update config values
-        const configJson = JSON.stringify({
-          enabled: true,
-          latitude: sanitizeNumber(state.lat, DEFAULT_LAT, -90, 90),
-          longitude: sanitizeNumber(state.lng, DEFAULT_LNG, -180, 180),
-          altitude: sanitizeNumber(state.altitude, 40.0, -500, 9000),
-          accuracy: sanitizeNumber(state.accuracy, 5.0, 1, 100),
-          jitter: !!state.jitter,
-          interval: 1.0,
-          boot_persist: !!state.bootPersist
-        });
-        await execCmd(`sh ${MODULE_SCRIPT_PATH} save-config '${configJson}'`);
+        // 1. Write selected coordinates and settings (preserves configured target apps)
+        const safeLat = sanitizeNumber(state.lat, DEFAULT_LAT, -90, 90).toFixed(7);
+        const safeLng = sanitizeNumber(state.lng, DEFAULT_LNG, -180, 180).toFixed(7);
+        const safeAlt = sanitizeNumber(state.altitude, 40.0, -500, 9000).toFixed(1);
+        const safeAcc = sanitizeNumber(state.accuracy, 5.0, 1, 100).toFixed(1);
+        const safeJit = state.jitter ? 'true' : 'false';
+        await execCmd(`sh ${MODULE_SCRIPT_PATH} set ${safeLat} ${safeLng} ${safeAlt} ${safeAcc} ${safeJit}`);
         
         // 2. Launch daemon
         const res = await execCmd(`sh ${MODULE_SCRIPT_PATH} start`);
@@ -463,17 +494,7 @@
 
     el.switchPersist.addEventListener('change', async () => {
       state.bootPersist = el.switchPersist.checked;
-      const configJson = JSON.stringify({
-        enabled: !!state.isActive,
-        latitude: sanitizeNumber(state.lat, DEFAULT_LAT, -90, 90),
-        longitude: sanitizeNumber(state.lng, DEFAULT_LNG, -180, 180),
-        altitude: sanitizeNumber(state.altitude, 40.0, -500, 9000),
-        accuracy: sanitizeNumber(state.accuracy, 5.0, 1, 100),
-        jitter: !!state.jitter,
-        interval: 1.0,
-        boot_persist: !!state.bootPersist
-      });
-      await execCmd(`sh ${MODULE_SCRIPT_PATH} save-config '${configJson}'`);
+      await execCmd(`sh ${MODULE_SCRIPT_PATH} persist ${state.bootPersist ? 'true' : 'false'}`);
       showToast(state.bootPersist ? "Will persist after boot" : "Boot persistence disabled");
     });
 
@@ -596,6 +617,84 @@
       el.telemetryToggle.classList.toggle('collapsed');
       el.telemetryBody.classList.toggle('hidden');
     });
+
+    // Target Apps Accordion Toggle
+    if (el.appsToggle && el.appsBody) {
+      el.appsToggle.addEventListener('click', () => {
+        el.appsToggle.classList.toggle('collapsed');
+        el.appsBody.classList.toggle('hidden');
+      });
+    }
+
+    // Target Apps Form Add
+    if (el.formAddApp) {
+      el.formAddApp.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const pkg = (el.inputAppPkg.value || '').trim();
+        if (!pkg) return;
+        showToast(`Adding ${pkg}...`);
+        await execCmd(`sh ${MODULE_SCRIPT_PATH} add-app ${pkg}`);
+        el.inputAppPkg.value = '';
+        await fetchDaemonStatus();
+        showToast(`Added ${pkg}`);
+      });
+    }
+
+    // Target Apps Quick Add Preset Buttons
+    document.querySelectorAll('.btn-quick-app').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const pkg = btn.dataset.pkg;
+        if (!pkg) return;
+        showToast(`Adding ${pkg}...`);
+        await execCmd(`sh ${MODULE_SCRIPT_PATH} add-app ${pkg}`);
+        await fetchDaemonStatus();
+        showToast(`Added ${pkg}`);
+      });
+    });
+
+    // Target Apps Remove Button Click
+    if (el.targetAppsContainer) {
+      el.targetAppsContainer.addEventListener('click', async (e) => {
+        const removeBtn = e.target.closest('.app-tag-remove');
+        if (!removeBtn) return;
+        const pkg = removeBtn.dataset.pkg;
+        if (!pkg) return;
+        showToast(`Removing ${pkg}...`);
+        await execCmd(`sh ${MODULE_SCRIPT_PATH} remove-app ${pkg}`);
+        await fetchDaemonStatus();
+        showToast(`Removed ${pkg}`);
+      });
+    }
+
+    // Force-stop & Clear Target App Caches Now Button
+    if (el.btnEvictNow) {
+      el.btnEvictNow.addEventListener('click', async () => {
+        showToast("Force-stopping target apps & clearing caches...");
+        await execCmd(`sh ${MODULE_SCRIPT_PATH} evict-apps`);
+        showToast("Target app caches cleared!");
+      });
+    }
+  }
+
+  function renderTargetApps(apps) {
+    state.targetApps = Array.isArray(apps) ? apps : [];
+    if (el.badgeAppsCount) {
+      const count = state.targetApps.length;
+      el.badgeAppsCount.textContent = `${count} ${count === 1 ? 'App' : 'Apps'}`;
+    }
+    if (!el.targetAppsContainer) return;
+
+    if (state.targetApps.length === 0) {
+      el.targetAppsContainer.innerHTML = '<span style="font-size: 11px; color: var(--text-muted); font-style: italic; padding: 4px 0;">No target apps configured yet. Add apps above to clear their caches on location changes.</span>';
+      return;
+    }
+
+    el.targetAppsContainer.innerHTML = state.targetApps.map(pkg => `
+      <div class="app-tag" data-pkg="${pkg}">
+        <span class="app-tag-name" title="${pkg}">${pkg}</span>
+        <span class="app-tag-remove" data-pkg="${pkg}" title="Remove app">✕</span>
+      </div>
+    `).join('');
   }
 
   /* -------------------------------------------------------------------------- */
@@ -798,24 +897,31 @@
 
         // Sync config if available
         if (data.config && typeof data.config.latitude === 'number') {
-          state.lat = data.config.latitude;
-          state.lng = data.config.longitude;
-          state.accuracy = data.config.accuracy ?? state.accuracy;
-          state.altitude = data.config.altitude ?? state.altitude;
-          state.jitter = data.config.jitter ?? state.jitter;
-          state.bootPersist = data.config.boot_persist ?? state.bootPersist;
+          if (isInitialLoad || !state.userEditingCoords) {
+            state.lat = data.config.latitude;
+            state.lng = data.config.longitude;
+            state.accuracy = data.config.accuracy ?? state.accuracy;
+            state.altitude = data.config.altitude ?? state.altitude;
+            state.jitter = data.config.jitter ?? state.jitter;
+            state.bootPersist = data.config.boot_persist ?? state.bootPersist;
 
-          // Update UI controls
-          el.inputAccuracy.value = state.accuracy;
-          el.inputAltitude.value = state.altitude;
-          el.switchJitter.checked = state.jitter;
-          el.switchPersist.checked = state.bootPersist;
+            // Update UI controls
+            el.inputAccuracy.value = state.accuracy;
+            el.inputAltitude.value = state.altitude;
+            el.switchJitter.checked = state.jitter;
+            el.switchPersist.checked = state.bootPersist;
 
-          updateCoordinates(state.lat, state.lng, false);
-          if (isInitialLoad && map) {
-            map.setView([state.lat, state.lng], 15);
-            isInitialLoad = false;
+            updateCoordinates(state.lat, state.lng, false);
+            if (isInitialLoad && map) {
+              map.setView([state.lat, state.lng], 15);
+              isInitialLoad = false;
+            }
           }
+        }
+
+        // Sync target apps list from config
+        if (data.config && Array.isArray(data.config.target_apps)) {
+          renderTargetApps(data.config.target_apps);
         }
 
         // Developer Options Status Readout

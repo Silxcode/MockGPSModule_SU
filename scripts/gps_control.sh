@@ -23,10 +23,117 @@ if [ -d "$CONFIG_DIR" ] && [ ! -f "$CONFIG_FILE" ]; then
   "accuracy": 5.0,
   "jitter": true,
   "interval": 1.0,
-  "boot_persist": false
+  "boot_persist": false,
+  "target_apps": [
+    "com.google.android.apps.maps"
+  ]
 }
 EOF
 fi
+
+get_target_apps() {
+    if [ -f "$CONFIG_FILE" ]; then
+        sed -n '/"target_apps"/,/\]/p' "$CONFIG_FILE" 2>/dev/null \
+            | grep -oE '"[a-zA-Z0-9_\.]+"' \
+            | grep -v "target_apps" \
+            | tr -d '"'
+    fi
+}
+
+evict_target_apps() {
+    APPS=$(get_target_apps)
+    for app in $APPS; do
+        if [ -n "$app" ]; then
+            am force-stop "$app" 2>/dev/null
+        fi
+    done
+}
+
+get_json_val() {
+    key="$1"
+    default_val="$2"
+    val=$(grep -E "\"$key\"[[:space:]]*:" "$CONFIG_FILE" 2>/dev/null | head -n 1 | sed -E 's/.*:[[:space:]]*"?([^",]+)"?.*/\1/' | tr -d ' \r\n')
+    if [ -z "$val" ]; then
+        echo "$default_val"
+    else
+        echo "$val"
+    fi
+}
+
+write_full_config() {
+    EN="${1:-false}"
+    LAT="${2:-35.6895}"
+    LNG="${3:-139.6917}"
+    ALT="${4:-40.0}"
+    ACC="${5:-5.0}"
+    JIT="${6:-true}"
+    PER="${7:-false}"
+
+    APPS_STR=""
+    for app in $(get_target_apps); do
+        if [ -z "$APPS_STR" ]; then
+            APPS_STR="    \"$app\""
+        else
+            APPS_STR="${APPS_STR},\n    \"$app\""
+        fi
+    done
+
+    cat << EOF > "$CONFIG_FILE.tmp"
+{
+  "enabled": $EN,
+  "latitude": $LAT,
+  "longitude": $LNG,
+  "altitude": $ALT,
+  "accuracy": $ACC,
+  "jitter": $JIT,
+  "interval": 1.0,
+  "boot_persist": $PER,
+  "target_apps": [
+$(printf "$APPS_STR")
+  ]
+}
+EOF
+    chmod 0644 "$CONFIG_FILE.tmp"
+    mv -f "$CONFIG_FILE.tmp" "$CONFIG_FILE"
+}
+
+write_full_config_with_apps() {
+    EN=$(get_json_val "enabled" "false")
+    LAT=$(get_json_val "latitude" "35.6895")
+    LNG=$(get_json_val "longitude" "139.6917")
+    ALT=$(get_json_val "altitude" "40.0")
+    ACC=$(get_json_val "accuracy" "5.0")
+    JIT=$(get_json_val "jitter" "true")
+    PER=$(get_json_val "boot_persist" "false")
+
+    APPS_STR=""
+    for app in "$@"; do
+        [ -z "$app" ] && continue
+        if [ -z "$APPS_STR" ]; then
+            APPS_STR="    \"$app\""
+        else
+            APPS_STR="${APPS_STR},\n    \"$app\""
+        fi
+    done
+
+    cat << EOF > "$CONFIG_FILE.tmp"
+{
+  "enabled": $EN,
+  "latitude": $LAT,
+  "longitude": $LNG,
+  "altitude": $ALT,
+  "accuracy": $ACC,
+  "jitter": $JIT,
+  "interval": 1.0,
+  "boot_persist": $PER,
+  "target_apps": [
+$(printf "$APPS_STR")
+  ]
+}
+EOF
+    chmod 0644 "$CONFIG_FILE.tmp"
+    mv -f "$CONFIG_FILE.tmp" "$CONFIG_FILE"
+}
 
 is_daemon_running() {
     if [ -f "$PID_FILE" ]; then
@@ -160,35 +267,75 @@ cmd_set() {
         return 1
     fi
 
-    # Read current persist and enabled state
-    CUR_ENABLED="true"
-    CUR_PERSIST="false"
-    if [ -f "$CONFIG_FILE" ]; then
-        grep -q '"enabled"[[:space:]]*:[[:space:]]*false' "$CONFIG_FILE" 2>/dev/null && CUR_ENABLED="false"
-        grep -q '"boot_persist"[[:space:]]*:[[:space:]]*true' "$CONFIG_FILE" 2>/dev/null && CUR_PERSIST="true"
-    fi
+    CUR_ENABLED=$(get_json_val "enabled" "false")
+    CUR_PERSIST=$(get_json_val "boot_persist" "false")
 
-    # Single-pass atomic write (avoids flash wear and TOCTOU daemon read race)
-    cat << EOF > "$CONFIG_FILE.tmp"
-{
-  "enabled": $CUR_ENABLED,
-  "latitude": $LAT,
-  "longitude": $LNG,
-  "altitude": $ALT,
-  "accuracy": $ACC,
-  "jitter": $JIT,
-  "interval": 1.0,
-  "boot_persist": $CUR_PERSIST
-}
-EOF
-    chmod 0644 "$CONFIG_FILE.tmp"
-    mv -f "$CONFIG_FILE.tmp" "$CONFIG_FILE"
+    write_full_config "$CUR_ENABLED" "$LAT" "$LNG" "$ALT" "$ACC" "$JIT" "$CUR_PERSIST"
+
+    # If daemon is running, immediately update mock location in all providers for zero latency
+    if is_daemon_running; then
+        for p in gps network fused; do
+            cmd location providers set-test-provider-location "$p" --location "${LAT},${LNG}" --accuracy "${ACC}" 2>/dev/null
+        done
+        # Evict target apps so they fetch fresh location
+        evict_target_apps
+    fi
 
     echo "{\"success\":true,\"latitude\":$LAT,\"longitude\":$LNG}"
 }
 
+cmd_add_app() {
+    NEW_APP="$1"
+    if [ -z "$NEW_APP" ]; then
+        echo "{\"error\":\"Missing package name\"}"
+        return 1
+    fi
+    NEW_APP=$(echo "$NEW_APP" | grep -oE '^[a-zA-Z0-9_\.]+$')
+    if [ -z "$NEW_APP" ]; then
+        echo "{\"error\":\"Invalid package name format\"}"
+        return 1
+    fi
+    CURRENT_APPS=$(get_target_apps)
+    for a in $CURRENT_APPS; do
+        if [ "$a" = "$NEW_APP" ]; then
+            echo "{\"success\":true,\"message\":\"App already in target list\",\"app\":\"$NEW_APP\"}"
+            return 0
+        fi
+    done
+    write_full_config_with_apps $CURRENT_APPS "$NEW_APP"
+    echo "{\"success\":true,\"message\":\"App added to target list\",\"app\":\"$NEW_APP\"}"
+}
+
+cmd_remove_app() {
+    REM_APP="$1"
+    if [ -z "$REM_APP" ]; then
+        echo "{\"error\":\"Missing package name\"}"
+        return 1
+    fi
+    CURRENT_APPS=$(get_target_apps)
+    NEW_LIST=""
+    for a in $CURRENT_APPS; do
+        if [ "$a" != "$REM_APP" ]; then
+            NEW_LIST="$NEW_LIST $a"
+        fi
+    done
+    write_full_config_with_apps $NEW_LIST
+    echo "{\"success\":true,\"message\":\"App removed from target list\",\"app\":\"$REM_APP\"}"
+}
+
+cmd_evict_apps() {
+    evict_target_apps
+    echo "{\"success\":true,\"message\":\"Target apps evicted and caches cleared\"}"
+}
+
+cmd_persist() {
+    VAL="${1:-false}"
+    update_json_val "boot_persist" "$VAL"
+    echo "{\"success\":true,\"boot_persist\":$VAL}"
+}
+
 cmd_save_config() {
-    PAYLOAD="$1"
+    PAYLOAD="$*"
     if [ -n "$PAYLOAD" ]; then
         echo "$PAYLOAD" > "$CONFIG_FILE.tmp"
         chmod 0644 "$CONFIG_FILE.tmp"
@@ -218,6 +365,21 @@ case "$1" in
         shift
         cmd_set "$@"
         ;;
+    persist)
+        shift
+        cmd_persist "$@"
+        ;;
+    add-app)
+        shift
+        cmd_add_app "$@"
+        ;;
+    remove-app)
+        shift
+        cmd_remove_app "$@"
+        ;;
+    evict-apps)
+        cmd_evict_apps
+        ;;
     save-config)
         shift
         cmd_save_config "$@"
@@ -241,7 +403,7 @@ case "$1" in
         fi
         ;;
     *)
-        echo "Usage: gps_control.sh {status|start|stop|set <lat> <lng>|save-config <json>|get-config|net-shield [on|off|status|vpn]|log}"
+        echo "Usage: gps_control.sh {status|start|stop|set <lat> <lng>|add-app <pkg>|remove-app <pkg>|evict-apps|save-config <json>|get-config|net-shield [on|off|status|vpn]|log}"
         exit 1
         ;;
 esac

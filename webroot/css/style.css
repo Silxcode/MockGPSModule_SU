@@ -851,3 +851,50 @@ input:checked + .slider:before {
 .btn-action-sm:active {
   transform: translateY(0);
 }
+
+/* Target Apps Tag & Chip Styling */
+.app-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: rgba(15, 23, 42, 0.95);
+  border: 1px solid rgba(6, 182, 212, 0.35);
+  border-radius: var(--radius-sm);
+  padding: 5px 10px;
+  font-size: 0.72rem;
+  font-family: var(--font-mono);
+  color: #e2e8f0;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+  transition: var(--transition);
+}
+.app-tag:hover {
+  border-color: var(--cyan-hover);
+  background: rgba(30, 41, 59, 0.95);
+}
+.app-tag-name {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.app-tag-remove {
+  cursor: pointer;
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  transition: var(--transition);
+}
+.app-tag-remove:hover {
+  color: var(--rose-danger);
+  background: rgba(244, 63, 94, 0.15);
+}
+.btn-quick-app {
+  font-size: 0.72rem;
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+}
+

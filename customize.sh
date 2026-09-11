@@ -30,7 +30,10 @@ if [ ! -f "$CONFIG_DIR/config.json" ]; then
   "accuracy": 5.0,
   "jitter": true,
   "interval": 1.0,
-  "boot_persist": false
+  "boot_persist": false,
+  "target_apps": [
+    "com.google.android.apps.maps"
+  ]
 }
 EOF
   chmod 0644 "$CONFIG_DIR/config.json"
