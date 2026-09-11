@@ -214,9 +214,15 @@ cmd_start() {
     # Ensure system location is enabled
     cmd location set-location-enabled true 2>/dev/null
 
-    # Suppress Wi-Fi and Bluetooth scanning to prevent Google Location Accuracy from overriding GPS
+    # Suppress Wi-Fi and Bluetooth scanning and lock location to GPS/sensors to prevent Wi-Fi rubberbanding
     settings put global wifi_scan_always_enabled 0 2>/dev/null
     settings put global ble_scan_always_enabled 0 2>/dev/null
+    settings put secure location_mode 1 2>/dev/null
+
+    # Enable GMS network shield to block outbound Wi-Fi geolocation queries
+    if [ -f "$SCRIPT_DIR/net_shield.sh" ]; then
+        /system/bin/sh "$SCRIPT_DIR/net_shield.sh" on >/dev/null 2>&1
+    fi
 
     # Immediate synchronous injection
     LAT=$(get_json_val "latitude" "35.6895")
@@ -244,8 +250,8 @@ cmd_start() {
     # Ensure executable permission
     chmod 0755 "$SCRIPT_DIR/gps_daemon.sh" 2>/dev/null
 
-    # Launch daemon in background via /system/bin/sh to bypass /data noexec mount
-    ( trap '' HUP; exec /system/bin/sh "$SCRIPT_DIR/gps_daemon.sh" ) </dev/null >> "$CONFIG_DIR/daemon.log" 2>&1 &
+    # Launch daemon in fully detached session via setsid to prevent session death
+    ( trap '' HUP INT TERM; setsid /system/bin/sh "$SCRIPT_DIR/gps_daemon.sh" </dev/null >> "$CONFIG_DIR/daemon.log" 2>&1 ) &
     DAEMON_PID=$!
     echo "$DAEMON_PID" > "$PID_FILE"
 
@@ -281,9 +287,15 @@ cmd_stop() {
         cmd location providers remove-test-provider "$p" 2>/dev/null
     done
 
-    # Restore default scanning settings
+    # Disable GMS network shield
+    if [ -f "$SCRIPT_DIR/net_shield.sh" ]; then
+        /system/bin/sh "$SCRIPT_DIR/net_shield.sh" off >/dev/null 2>&1
+    fi
+
+    # Restore default scanning and location settings
     settings put global wifi_scan_always_enabled 1 2>/dev/null
     settings put global ble_scan_always_enabled 1 2>/dev/null
+    settings put secure location_mode 3 2>/dev/null
 
     rm -f "$PID_FILE"
     echo '{"active":false,"pid":0,"last_tick":0}' > "$STATUS_FILE"

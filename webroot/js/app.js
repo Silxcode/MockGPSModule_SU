@@ -562,11 +562,6 @@
       }
     });
 
-    // Telemetry Collapsible Accordion
-    el.telemetryToggle.addEventListener('click', () => {
-      el.telemetryToggle.classList.toggle('collapsed');
-      el.telemetryBody.classList.toggle('hidden');
-    });
 
     // Target Apps Accordion Toggle
     if (el.appsToggle && el.appsBody) {

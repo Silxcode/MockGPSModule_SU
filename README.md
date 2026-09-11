@@ -2,7 +2,7 @@
 
 [![KernelSU](https://img.shields.io/badge/KernelSU--Next-supported-brightgreen.svg)](https://github.com/rifsxd/KernelSU-Next)
 [![Android](https://img.shields.io/badge/Android-10--15-blue.svg)](https://developer.android.com/)
-[![Version](https://img.shields.io/badge/version-v1.1.0-informational.svg)](https://github.com/Silxcode/MockGPSModule_SU/releases)
+[![Version](https://img.shields.io/badge/version-v1.1.1-informational.svg)](https://github.com/Silxcode/MockGPSModule_SU/releases)
 [![License](https://img.shields.io/badge/license-MIT-lightgrey.svg)](LICENSE)
 
 A root-level GPS spoofing module for KernelSU, KernelSU-Next, APatch, and Magisk. Operates via Android's system test provider interface — no Developer Options required, no third-party mock location app selection. Ships with an on-device WebUI and a network fingerprint shield that suppresses secondary location signals from reaching Google's servers.
@@ -196,6 +196,14 @@ To spoof location in apps that check `Location.isMock()`:
 ---
 
 ## Changelog
+
+**v1.1.1**
+- Resolved location reversion ("rubberbanding") by detaching daemon process via `setsid` so it survives parent `su` shell termination
+- Eliminated config file read race condition in daemon loop that previously caused premature daemon exit
+- Added automatic GMS network shield activation on daemon start to drop Google Wi-Fi BSSID geolocation queries
+- Locked location mode to GPS sensors (`location_mode 1`) and suppressed Wi-Fi/BLE background scanning
+- Removed dead DOM event listener in WebUI that triggered an uncaught TypeError in browser console
+- Added prominent user advice banner on disabling Google Location Accuracy for 100% stable spoofing
 
 **v1.1.0**
 - Fixed silent daemon execution failure caused by Android `/data` partition `noexec` mount flag by explicitly invoking `/system/bin/sh`
