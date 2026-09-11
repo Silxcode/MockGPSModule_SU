@@ -44,12 +44,16 @@ if [ -d "$MODPATH/webroot" ]; then
 fi
 
 ui_print "- Checking system location services..."
-# Pre-grant mock location capability to system shell
+# Pre-grant mock location capability to system shell, root, and system server
 appops set 2000 android:mock_location allow 2>/dev/null
+appops set 1000 android:mock_location allow 2>/dev/null
 appops set 0 android:mock_location allow 2>/dev/null
 appops set com.android.shell android:mock_location allow 2>/dev/null
+appops set android android:mock_location allow 2>/dev/null
 appops set --user 0 2000 android:mock_location allow 2>/dev/null
+appops set --user 0 1000 android:mock_location allow 2>/dev/null
 appops set --user 0 com.android.shell android:mock_location allow 2>/dev/null
+appops set --user 0 android android:mock_location allow 2>/dev/null
 
 # Make all scripts executable
 chmod 0755 "$MODPATH/scripts/gps_daemon.sh" 2>/dev/null

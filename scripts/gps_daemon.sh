@@ -38,12 +38,16 @@ trap '' SIGHUP
 # Clean exit on SIGTERM and SIGINT
 trap cleanup SIGTERM SIGINT
 
-# Pre-grant mock location capability to system shell across users
+# Pre-grant mock location capability to system shell, root, and system server across users
 appops set 2000 android:mock_location allow 2>/dev/null
+appops set 1000 android:mock_location allow 2>/dev/null
 appops set 0 android:mock_location allow 2>/dev/null
 appops set com.android.shell android:mock_location allow 2>/dev/null
+appops set android android:mock_location allow 2>/dev/null
 appops set --user 0 2000 android:mock_location allow 2>/dev/null
+appops set --user 0 1000 android:mock_location allow 2>/dev/null
 appops set --user 0 com.android.shell android:mock_location allow 2>/dev/null
+appops set --user 0 android android:mock_location allow 2>/dev/null
 
 # Ensure system location is enabled
 cmd location set-location-enabled true 2>/dev/null
@@ -51,19 +55,17 @@ cmd location set-location-enabled true 2>/dev/null
 # Suppress Wi-Fi and Bluetooth scanning to prevent Google Location Accuracy from overriding GPS
 settings put global wifi_scan_always_enabled 0 2>/dev/null
 settings put global ble_scan_always_enabled 0 2>/dev/null
-content insert --uri content://com.google.settings/partner --bind name:s:network_location_opt_in --bind value:s:0 2>/dev/null
+content insert --uri content://com.google.settings/partner --bind name:s:network_location_opt_in --bind value:s:0 2>/dev/null || true
 
 echo "[$(date)] Registering test providers..." > "$LOG_FILE"
 
 # Clean and register test providers with full capabilities
 for p in $PROVIDERS; do
     cmd location providers remove-test-provider "$p" 2>/dev/null
-    cmd location providers add-test-provider "$p" --requiresNetwork --requiresSatellite --supportsAltitude --supportsSpeed --supportsBearing 2>> "$LOG_FILE"
-    # Fallback to basic if flags rejected
-    if [ $? -ne 0 ]; then
-        cmd location providers add-test-provider "$p" 2>> "$LOG_FILE"
+    if ! cmd location providers add-test-provider "$p" --requiresNetwork --requiresSatellite --supportsAltitude --supportsSpeed --supportsBearing >> "$LOG_FILE" 2>&1; then
+        cmd location providers add-test-provider "$p" >> "$LOG_FILE" 2>&1
     fi
-    cmd location providers set-test-provider-enabled "$p" true 2>> "$LOG_FILE"
+    cmd location providers set-test-provider-enabled "$p" true >> "$LOG_FILE" 2>&1
 done
 
 # Enable network shield (blocks GMS network location correction + IP geolocation signals)
@@ -167,7 +169,7 @@ while true; do
 
     # Inject into providers
     for p in $PROVIDERS; do
-        cmd location providers set-test-provider-location "$p" --location "${TARGET_LAT},${TARGET_LNG}" --accuracy "${TARGET_ACC}" 2>> "$LOG_FILE"
+        cmd location providers set-test-provider-location "$p" --location "${TARGET_LAT},${TARGET_LNG}" --accuracy "${TARGET_ACC}" >> "$LOG_FILE" 2>&1
     done
 
     # Write live status atomically with safe defaults (never emits malformed JSON)

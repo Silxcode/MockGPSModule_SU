@@ -233,8 +233,15 @@ case "$1" in
             echo "{\"error\":\"net_shield.sh not found\"}"
         fi
         ;;
+    log)
+        if [ -f "$CONFIG_DIR/daemon.log" ]; then
+            tail -n 40 "$CONFIG_DIR/daemon.log"
+        else
+            echo "No daemon log found at $CONFIG_DIR/daemon.log"
+        fi
+        ;;
     *)
-        echo "Usage: gps_control.sh {status|start|stop|set <lat> <lng>|save-config <json>|get-config|net-shield [on|off|status|vpn]}"
+        echo "Usage: gps_control.sh {status|start|stop|set <lat> <lng>|save-config <json>|get-config|net-shield [on|off|status|vpn]|log}"
         exit 1
         ;;
 esac

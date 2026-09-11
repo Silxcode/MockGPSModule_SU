@@ -372,10 +372,15 @@
           <span class="telemetry-val" id="telem-bridge">Detecting...</span>
         </div>
         <div class="telemetry-row" style="flex-direction: column; align-items: flex-start; gap: 4px; padding-top: 8px; border-top: 1px solid var(--border-subtle);">
-          <span class="telemetry-key" style="color: var(--amber-warning); font-weight: 600;">Google Maps / Fused Provider Note:</span>
+          <span class="telemetry-key" style="color: var(--amber-warning); font-weight: 600;">Attendance &amp; Fused Apps (DakSathi, Google Maps):</span>
           <span style="font-size: 11px; color: var(--text-muted); line-height: 1.4;">
-            If Google Maps snaps to real location, disable <b>Google Location Accuracy</b> &amp; <b>Wi-Fi Scanning</b> in <i>Settings &rarr; Location &rarr; Location Services</i>, then swipe away Google Maps and reopen.
+            &bull; <b>Disable Google Location Accuracy</b> &amp; <b>Wi-Fi Scanning</b> in <i>Settings &rarr; Location &rarr; Location Services</i> (Google scans Wi-Fi BSSIDs and overrides GPS with your physical address).<br/>
+            &bull; For attendance apps with anti-cheat (DakSathi), use <b>LSPosed + Hide Mock Location</b> to bypass <code>Location.isMock()</code> flag checks.
           </span>
+        </div>
+        <div style="padding-top: 8px;">
+          <button type="button" id="btn-view-log" class="btn-preset-nav" style="width: 100%; height: 32px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer;">View Live Daemon Log</button>
+          <pre id="daemon-log-output" style="display: none; margin-top: 8px; max-height: 140px; overflow-y: auto; background: #080d14; padding: 8px; border-radius: 6px; font-size: 10px; color: #a5b4fc; white-space: pre-wrap; word-break: break-all; border: 1px solid var(--border-subtle);"></pre>
         </div>
       </div>
     </section>

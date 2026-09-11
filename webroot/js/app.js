@@ -877,6 +877,24 @@
       btnShieldToggle.addEventListener('click', toggleNetShield);
     }
 
+    // View Live Daemon Log button
+    const btnViewLog = document.getElementById('btn-view-log');
+    const logOutput = document.getElementById('daemon-log-output');
+    if (btnViewLog && logOutput) {
+      btnViewLog.addEventListener('click', async () => {
+        if (logOutput.style.display === 'none' || !logOutput.style.display) {
+          btnViewLog.textContent = 'Loading Log...';
+          const res = await execCmd(`sh ${MODULE_SCRIPT_PATH} log`);
+          logOutput.textContent = res ? (res.stdout || res.stderr || 'No log output') : 'No output';
+          logOutput.style.display = 'block';
+          btnViewLog.textContent = 'Hide Daemon Log';
+        } else {
+          logOutput.style.display = 'none';
+          btnViewLog.textContent = 'View Live Daemon Log';
+        }
+      });
+    }
+
     // Initial status check
     await fetchDaemonStatus();
 
