@@ -55,28 +55,17 @@ cmd location set-location-enabled true 2>/dev/null
 # Suppress Wi-Fi and Bluetooth scanning to prevent Google Location Accuracy from overriding GPS
 settings put global wifi_scan_always_enabled 0 2>/dev/null
 settings put global ble_scan_always_enabled 0 2>/dev/null
-content insert --uri content://com.google.settings/partner --bind name:s:network_location_opt_in --bind value:s:0 2>/dev/null || true
 
 echo "[$(date)] Registering test providers..." > "$LOG_FILE"
 
-# Clean and register test providers with full capabilities
+# Clean and register test providers with full capabilities (supports altitude, speed, bearing) without restrictive hardware requirements
 for p in $PROVIDERS; do
     cmd location providers remove-test-provider "$p" 2>/dev/null
-    if ! cmd location providers add-test-provider "$p" --requiresNetwork --requiresSatellite --supportsAltitude --supportsSpeed --supportsBearing >> "$LOG_FILE" 2>&1; then
+    if ! cmd location providers add-test-provider "$p" --supportsAltitude --supportsSpeed --supportsBearing >> "$LOG_FILE" 2>&1; then
         cmd location providers add-test-provider "$p" >> "$LOG_FILE" 2>&1
     fi
     cmd location providers set-test-provider-enabled "$p" true >> "$LOG_FILE" 2>&1
 done
-
-# Enable network shield (blocks GMS network location correction + IP geolocation signals)
-if [ -x "$SCRIPT_DIR/net_shield.sh" ]; then
-    "$SCRIPT_DIR/net_shield.sh" on >> "$LOG_FILE" 2>&1
-    echo "[$(date)] Network shield enabled" >> "$LOG_FILE"
-else
-    # Inline fallback — basic Wi-Fi/BLE scanning suppression
-    settings put global wifi_scan_always_enabled 0 2>/dev/null
-    settings put global ble_scan_always_enabled 0 2>/dev/null
-fi
 
 # Dynamically evict target apps configured by the user
 evict_target_apps() {

@@ -2,7 +2,7 @@
 
 [![KernelSU](https://img.shields.io/badge/KernelSU--Next-supported-brightgreen.svg)](https://github.com/rifsxd/KernelSU-Next)
 [![Android](https://img.shields.io/badge/Android-10--15-blue.svg)](https://developer.android.com/)
-[![Version](https://img.shields.io/badge/version-v1.0.3-informational.svg)](https://github.com/Silxcode/MockGPSModule_SU/releases)
+[![Version](https://img.shields.io/badge/version-v1.0.8-informational.svg)](https://github.com/Silxcode/MockGPSModule_SU/releases)
 [![License](https://img.shields.io/badge/license-MIT-lightgrey.svg)](LICENSE)
 
 A root-level GPS spoofing module for KernelSU, KernelSU-Next, APatch, and Magisk. Operates via Android's system test provider interface — no Developer Options required, no third-party mock location app selection. Ships with an on-device WebUI and a network fingerprint shield that suppresses secondary location signals from reaching Google's servers.
@@ -177,26 +177,54 @@ Check the log: `su -c "cat /data/adb/ksu_fakegps/daemon.log"`. Common cause is a
 
 ---
 
+### Anti-Mock / Anti-Cheat Apps (Uber, Ola, Swiggy, Games)
+
+Android's location subsystem automatically flags all test provider coordinates with `location.isMock() = true` (`location.isFromMockProvider()`). Standard apps (Chrome, Google Maps, WhatsApp, Telegram, Firefox, Instagram) ignore this flag and use the coordinates normally.
+
+Apps with strict anti-fraud detection (such as ride-sharing or delivery apps) inspect `Location.isMock()` and silently drop mock coordinates:
+- If Google Location Accuracy is turned on, GMS Wi-Fi scanning detects the real location (`isMock = false`), which the app accepts.
+- If Google Location Accuracy is off, the app receives the mock location, sees `isMock == true`, and discards it (causing "location not fetched" or infinite loading).
+
+**Solution for Anti-Mock Apps:**
+To spoof location in apps that check `Location.isMock()`:
+1. Install **ZygiskNext** (KernelSU module) to enable Zygisk.
+2. Install **LSPosed** (Zygisk release).
+3. Install **[Hide Mock Location](https://github.com/auag0/HideMockLocation)** Xposed module.
+4. Add the target app (e.g. Uber) in Hide Mock Location.
+5. The Xposed module hooks `Location.isMock()` within the app's process, allowing it to seamlessly accept the spoofed coordinates injected by this module.
+
+---
+
 ## Changelog
 
+**v1.0.8**
+- Removed disruptive `network_location_opt_in=0` content insert that triggered the Google Location Accuracy modal prompt
+- Removed restrictive `--requiresNetwork` and `--requiresSatellite` flags from `cmd location providers add-test-provider`
+- Made iptables packet-dropping network shield optional in WebUI rather than auto-enabled on daemon start
+- Added on-screen guidance and documentation for apps enforcing `isMock` checks (Uber, Ola, etc.)
+
+**v1.0.7**
+- Added dynamic target apps list with live package management and preset buttons in WebUI
+- Added instant coordinate injection and immediate app cache eviction on coordinate set
+- Persistent target apps stored in `/data/adb/ksu_fakegps/config.json`
+
+**v1.0.6**
+- Pre-granted mock location appops across Android system UIDs (UID 0, 1000, 2000, com.android.shell, android)
+- Added live daemon log streaming to WebUI
+
+**v1.0.5**
+- Fixed locale decimal parsing in jitter calculations across global mksh locales
+- Isolated iptables chains to avoid duplicate rules
+- Fixed daemon PID verification to prevent process recycling collisions
+
+**v1.0.4**
+- Added provider keepalive watchdog
+- Improved IP check tool with fallback to toybox wget
+
 **v1.0.3**
-- Added `net_shield.sh` — iptables rules scoped to GMS UID, blocking Google geolocation IP ranges while preserving GMS functionality
+- Added `net_shield.sh` — iptables rules scoped to GMS UID
 - Added IP geolocation check panel to WebUI
 - Added VPN/tunnel interface detector to WebUI
-- Added `net-shield` sub-command to `gps_control.sh`
-- Daemon now enables the shield on start and removes it on stop
-- Added `am kill com.google.android.gms` to flush GMS location cache on daemon start
-
-**v1.0.2**
-- Fixed daemon being killed on shell disconnect (SIGHUP immunity via `trap '' SIGHUP`)
-- Added Google Location Accuracy opt-out via `com.google.settings` content provider
-- Added Wi-Fi and BLE scanning suppression, restored on stop
-- Fixed stale test provider registration (remove before add)
-- Added coordinate logging to `/data/adb/ksu_fakegps/daemon.log`
-- Updated provider flags to include altitude, speed, bearing support
-
-**v1.0.1**
-- Initial release
 
 ---
 

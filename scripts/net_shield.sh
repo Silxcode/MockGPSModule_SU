@@ -131,10 +131,6 @@ shield_on() {
     # Settings-based suppression (always apply, belt + suspenders)
     settings put global wifi_scan_always_enabled 0 2>/dev/null
     settings put global ble_scan_always_enabled 0 2>/dev/null
-    content insert --uri content://com.google.settings/partner \
-        --bind name:s:network_location_opt_in --bind value:s:0 2>/dev/null || true
-    content insert --uri content://com.google.settings/partner \
-        --bind name:s:use_location_for_services --bind value:s:0 2>/dev/null || true
 
     log "Network shield enabled (iptables=$IPTABLES_OWNER_OK)"
     printf '{"shield":"on","gms_uid":%s,"iptables":%s}' "$GMS_UID" "$IPTABLES_OWNER_OK"
